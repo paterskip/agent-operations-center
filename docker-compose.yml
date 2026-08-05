@@ -1,0 +1,22 @@
+services:
+  dashboard:
+    build: .
+    restart: unless-stopped
+    environment:
+      HERMES_KANBAN_ROOT: /data/kanban
+      HERMES_PROFILES_ROOT: /data/profiles-not-mounted
+      AOC_AGENTS: pm,coder,coder-parallel,designer,tester,reviewer
+      AOC_USERNAME: ${AOC_USERNAME:?Set AOC_USERNAME in .env}
+      AOC_PASSWORD: ${AOC_PASSWORD:?Set AOC_PASSWORD in .env}
+    volumes:
+      - /root/.hermes/kanban:/data/kanban:ro
+      - /root/.hermes/kanban.db:/data/kanban.db:ro
+      - /root/.hermes/kanban.db-wal:/data/kanban.db-wal:ro
+      - /root/.hermes/kanban.db-shm:/data/kanban.db-shm:ro
+    ports:
+      - "127.0.0.1:3010:3000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
