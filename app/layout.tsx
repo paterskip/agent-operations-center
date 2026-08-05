@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./inbox.css";
 
 export const metadata: Metadata = { title: "Agent Operations Center", description: "Live mission control for Hermes agents" };
 

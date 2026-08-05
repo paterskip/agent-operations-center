@@ -1,0 +1,8 @@
+users:
+  ceo:
+    disabled: false
+    displayname: 'CEO'
+    password: '$argon2id$v=19$m=65536,t=3,p=4$AmWPi+kPC7O99HSkL1wHmA$Enu8lphwZ+fakeb1JPvgAublHo61/JQUmpa/Fs70Mek'
+    email: 'ceo@paterski.com'
+    groups:
+      - 'ceo'

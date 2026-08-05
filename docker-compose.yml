@@ -6,16 +6,36 @@ services:
       HERMES_KANBAN_ROOT: /data/kanban
       HERMES_PROFILES_ROOT: /data/profiles-not-mounted
       AOC_AGENTS: pm,coder,coder-parallel,designer,tester,reviewer
-      AOC_USERNAME: ${AOC_USERNAME:?Set AOC_USERNAME in .env}
-      AOC_PASSWORD: ${AOC_PASSWORD:?Set AOC_PASSWORD in .env}
+      AOC_USERNAME: ceo
+      AOC_PUBLIC_URL: https://agents.paterski.com
+      AOC_STATE_DB: /data/state/aoc.db
     volumes:
       - /root/.hermes/kanban:/data/kanban:ro
       - /root/.hermes/kanban.db:/data/kanban.db:ro
       - /root/.hermes/kanban.db-wal:/data/kanban.db-wal:ro
       - /root/.hermes/kanban.db-shm:/data/kanban.db-shm:ro
+      - /var/lib/agent-operations-center:/data/state
     ports:
       - "127.0.0.1:3010:3000"
     read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  authelia:
+    image: authelia/authelia:4.39.10
+    restart: unless-stopped
+    environment:
+      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /secrets/jwt
+      AUTHELIA_SESSION_SECRET_FILE: /secrets/session
+      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: /secrets/storage
+    volumes:
+      - ./deploy/authelia:/config:ro
+      - /var/lib/authelia:/var/lib/authelia
+      - /var/lib/authelia/secrets:/secrets:ro
+    ports:
+      - "127.0.0.1:9091:9091"
     tmpfs:
       - /tmp
     security_opt:
