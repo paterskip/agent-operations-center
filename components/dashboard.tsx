@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import type { ActivityEvent, DashboardSnapshot, IdeaRecord, TaskCard } from "@/lib/types";
 import { STATUSES } from "@/lib/types";
 
@@ -33,7 +33,7 @@ export default function Dashboard() {
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
   const [ideaMessage, setIdeaMessage] = useState("");
   const [submittingIdea, setSubmittingIdea] = useState(false);
-  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const scrollTo = useCallback((id: string) => {
     const element = document.getElementById(id);
@@ -58,7 +58,12 @@ export default function Dashboard() {
     } catch {}
   }, []);
 
-  useEffect(() => { const timer = window.setTimeout(() => { void load(); void loadIdeas(); }, 0); return () => window.clearTimeout(timer); }, [load, loadIdeas]);
+  useEffect(() => {
+    const boardSlug = searchParams.get("board") || undefined;
+    const timer = window.setTimeout(() => { void load(boardSlug); void loadIdeas(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [searchParams, load, loadIdeas]);
+
   useEffect(() => {
     const source = new EventSource("/api/events");
     source.addEventListener("ready", () => setLive(true));
@@ -81,6 +86,14 @@ export default function Dashboard() {
     } catch (error) { setIdeaMessage(error instanceof Error ? error.message : "Błąd zapisu"); }
     finally { setSubmittingIdea(false); }
   }
+
+  const selectBoard = useCallback((slug: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("board", slug);
+    window.history.replaceState({}, "", url.toString());
+    setLoading(true);
+    void load(slug);
+  }, [load]);
 
   const visibleTasks = useMemo(() => data?.tasks.filter((task) => agentFilter === "all" || task.assignee === agentFilter) || [], [data, agentFilter]);
   const active = data?.agents.filter((agent) => agent.status === "working").length || 0;
@@ -115,7 +128,7 @@ export default function Dashboard() {
       </section>
 
       <section className="project-strip" aria-label="Projekty">
-        {data.boards.map((item) => <button key={item.slug} className={`project-chip ${board === item.slug ? "selected" : ""}`} onClick={() => { router.replace(`?board=${encodeURIComponent(item.slug)}`, { scroll: false }); setLoading(true); load(item.slug); }}>
+        {data.boards.map((item) => <button key={item.slug} className={`project-chip ${board === item.slug ? "selected" : ""}`} onClick={() => selectBoard(item.slug)}>
           <span className="project-icon">{item.icon}</span><span><strong>{item.name}</strong><small>{item.counts.running || 0} active · {item.counts.blocked || 0} blocked</small></span>
         </button>)}
       </section>
@@ -155,7 +168,7 @@ export default function Dashboard() {
         </section>
 
         <aside className="activity-panel" id="activity"><div className="section-head"><div><p className="eyebrow">EVENT STREAM</p><h2>Live activity</h2></div><span className="pulse"/></div><div className="activity-list" aria-live="polite">
-          {data.activity.map((event) => <article key={`${event.board}-${event.id}`}><div className={`activity-icon ${event.kind}`}>{event.kind === "completed" ? "✓" : event.kind === "blocked" ? "!" : "·"}</div><div><p><strong>{event.assignee || "System"}</strong> {eventCopy(event)}</p><button onClick={() => { if (event.board !== board) { router.replace(`?board=${encodeURIComponent(event.board)}`, { scroll: false }); load(event.board); } else { setSelectedTask(data.tasks.find((task) => task.id === event.taskId) || null); } }}>{event.taskTitle}</button><small>{event.board} · {relativeTime(event.createdAt)}</small></div></article>)}
+          {data.activity.map((event) => <article key={`${event.board}-${event.id}`}><div className={`activity-icon ${event.kind}`}>{event.kind === "completed" ? "✓" : event.kind === "blocked" ? "!" : "·"}</div><div><p><strong>{event.assignee || "System"}</strong> {eventCopy(event)}</p><button onClick={() => { if (event.board !== board) { selectBoard(event.board); } else { setSelectedTask(data.tasks.find((task) => task.id === event.taskId) || null); } }}>{event.taskTitle}</button><small>{event.board} · {relativeTime(event.createdAt)}</small></div></article>)}
           {!data.activity.length && <div className="empty-activity"><span>⌁</span><p>Zdarzenia pojawią się, gdy zespół rozpocznie pracę.</p></div>}
         </div></aside>
       </div>
