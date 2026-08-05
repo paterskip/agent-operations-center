@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 const dbPath = process.env.AOC_STATE_DB || "/var/lib/agent-operations-center/aoc.db";
 const hermes = process.env.HERMES_BIN || "/usr/local/bin/hermes";
@@ -108,3 +110,27 @@ function processDecision() {
 }
 
 try { while (runOne() || processDecision()) {} } finally { db.close(); }
+
+// --- Backup Kanban before broker cycle ---
+function backupKanban() {
+  const kanbanRoot = "/root/.hermes/kanban";
+  const boardsDir = path.join(kanbanRoot, "boards");
+  const backupDir = path.join(kanbanRoot, "backups");
+  fs.mkdirSync(backupDir, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  for (const slug of fs.readdirSync(boardsDir)) {
+    if (slug.startsWith("_") || slug.includes("..")) continue;
+    const src = path.join(boardsDir, slug, "kanban.db");
+    if (!fs.existsSync(src)) continue;
+    const dest = path.join(backupDir, `${slug}-${timestamp}.db`);
+    fs.copyFileSync(src, dest);
+  }
+  // Keep only last 10 backups per board
+  for (const slug of fs.readdirSync(boardsDir)) {
+    if (slug.startsWith("_") || slug.includes("..")) continue;
+    const backups = fs.readdirSync(backupDir).filter((f) => f.startsWith(`${slug}-`) && f.endsWith(".db")).sort().reverse();
+    for (const old of backups.slice(10)) fs.unlinkSync(path.join(backupDir, old));
+  }
+}
+
+try { backupKanban(); while (runOne() || processDecision()) {} } finally { db.close(); }

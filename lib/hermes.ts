@@ -62,6 +62,7 @@ function readTasks(board: BoardRecord): TaskCard[] {
       const id = String(r.id);
       return {
         id, title: String(r.title), body: String(r.body || ""), assignee: r.assignee == null ? null : String(r.assignee), status: String(r.status), priority: Number(r.priority || 0),
+        boardSlug: board.slug,
         createdAt: Number(r.created_at), startedAt: r.started_at == null ? null : Number(r.started_at), completedAt: r.completed_at == null ? null : Number(r.completed_at),
         branchName: r.branch_name == null ? null : String(r.branch_name), result: r.result == null ? null : String(r.result),
         blockKind: r.block_kind == null ? null : String(r.block_kind), lastHeartbeatAt: r.last_heartbeat_at == null ? null : Number(r.last_heartbeat_at), modelOverride: r.model_override == null ? null : String(r.model_override),

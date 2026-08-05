@@ -37,6 +37,7 @@ export interface TaskCard {
   blockKind: string | null;
   lastHeartbeatAt: number | null;
   modelOverride: string | null;
+  boardSlug: string;
   parentIds: string[];
   childIds: string[];
   comments: Array<{ id: number; author: string; body: string; createdAt: number }>;
