@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { ActivityEvent, DashboardSnapshot, IdeaRecord, TaskCard } from "@/lib/types";
 import { STATUSES } from "@/lib/types";
 
@@ -32,6 +33,12 @@ export default function Dashboard() {
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
   const [ideaMessage, setIdeaMessage] = useState("");
   const [submittingIdea, setSubmittingIdea] = useState(false);
+  const router = useRouter();
+
+  const scrollTo = useCallback((id: string) => {
+    const element = document.getElementById(id);
+    if (element) element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   const load = useCallback(async (slug?: string) => {
     try {
@@ -86,10 +93,10 @@ export default function Dashboard() {
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">A</span><div><strong>Agent Ops</strong><small>Mission Control</small></div></div>
       <nav aria-label="Główna nawigacja">
-        <a className="nav-item active" href="#board"><span>⌁</span> Operations</a>
-        <a className="nav-item" href="#inbox"><span>＋</span> CEO Inbox</a>
-        <a className="nav-item" href="#agents"><span>◎</span> Agents</a>
-        <a className="nav-item" href="#activity"><span>≋</span> Activity</a>
+        <button type="button" className="nav-item active" onClick={() => scrollTo("board")}><span>⌁</span> Operations</button>
+        <button type="button" className="nav-item" onClick={() => scrollTo("inbox")}><span>＋</span> CEO Inbox</button>
+        <button type="button" className="nav-item" onClick={() => scrollTo("agents")}><span>◎</span> Agents</button>
+        <button type="button" className="nav-item" onClick={() => scrollTo("activity")}><span>≋</span> Activity</button>
       </nav>
       <div className="sidebar-foot"><span className="system-dot"/><div><strong>Hermes online</strong><small>{data.boards.length} boardy · {data.agents.length} agentów</small></div></div>
     </aside>
@@ -108,7 +115,7 @@ export default function Dashboard() {
       </section>
 
       <section className="project-strip" aria-label="Projekty">
-        {data.boards.map((item) => <button key={item.slug} className={`project-chip ${board === item.slug ? "selected" : ""}`} onClick={() => { setLoading(true); load(item.slug); }}>
+        {data.boards.map((item) => <button key={item.slug} className={`project-chip ${board === item.slug ? "selected" : ""}`} onClick={() => { router.replace(`?board=${encodeURIComponent(item.slug)}`, { scroll: false }); setLoading(true); load(item.slug); }}>
           <span className="project-icon">{item.icon}</span><span><strong>{item.name}</strong><small>{item.counts.running || 0} active · {item.counts.blocked || 0} blocked</small></span>
         </button>)}
       </section>
@@ -148,7 +155,7 @@ export default function Dashboard() {
         </section>
 
         <aside className="activity-panel" id="activity"><div className="section-head"><div><p className="eyebrow">EVENT STREAM</p><h2>Live activity</h2></div><span className="pulse"/></div><div className="activity-list" aria-live="polite">
-          {data.activity.map((event) => <article key={`${event.board}-${event.id}`}><div className={`activity-icon ${event.kind}`}>{event.kind === "completed" ? "✓" : event.kind === "blocked" ? "!" : "·"}</div><div><p><strong>{event.assignee || "System"}</strong> {eventCopy(event)}</p><button onClick={() => { if (event.board !== board) load(event.board); else setSelectedTask(data.tasks.find((task) => task.id === event.taskId) || null); }}>{event.taskTitle}</button><small>{event.board} · {relativeTime(event.createdAt)}</small></div></article>)}
+          {data.activity.map((event) => <article key={`${event.board}-${event.id}`}><div className={`activity-icon ${event.kind}`}>{event.kind === "completed" ? "✓" : event.kind === "blocked" ? "!" : "·"}</div><div><p><strong>{event.assignee || "System"}</strong> {eventCopy(event)}</p><button onClick={() => { if (event.board !== board) { router.replace(`?board=${encodeURIComponent(event.board)}`, { scroll: false }); load(event.board); } else { setSelectedTask(data.tasks.find((task) => task.id === event.taskId) || null); } }}>{event.taskTitle}</button><small>{event.board} · {relativeTime(event.createdAt)}</small></div></article>)}
           {!data.activity.length && <div className="empty-activity"><span>⌁</span><p>Zdarzenia pojawią się, gdy zespół rozpocznie pracę.</p></div>}
         </div></aside>
       </div>
