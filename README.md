@@ -7,7 +7,7 @@ Read-only, live mission-control dashboard for a Hermes multi-agent team. It disc
 ## MVP features
 
 - multi-board portfolio switcher;
-- Kanban columns for `triage`, `todo`, `ready`, `running`, `blocked`, and `done`;
+- Kanban columns for `triage`, `todo`, `scheduled`, `ready`, `running`, `blocked`, `review`, and `done`;
 - agent presence and per-agent task filtering;
 - live event stream powered by Hermes `task_events`;
 - task drawer with dependencies, run history, comments, branch, and heartbeat;
