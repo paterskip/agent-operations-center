@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { ActivityEvent, DashboardSnapshot, IdeaRecord, TaskCard } from "@/lib/types";
+import type { ActivityEvent, DashboardSnapshot, DecisionRecord, IdeaRecord, TaskCard } from "@/lib/types";
 import { STATUSES } from "@/lib/types";
 
 const roleIcon: Record<string, string> = { pm: "◆", coder: "⌘", "coder-parallel": "⌘", designer: "✦", tester: "✓", reviewer: "◇" };
@@ -33,6 +33,10 @@ export default function Dashboard() {
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
   const [ideaMessage, setIdeaMessage] = useState("");
   const [submittingIdea, setSubmittingIdea] = useState(false);
+  const [decisions, setDecisions] = useState<DecisionRecord[]>([]);
+  const [decisionComment, setDecisionComment] = useState("");
+  const [decisionMessage, setDecisionMessage] = useState("");
+  const [decisionBusy, setDecisionBusy] = useState(false);
   const searchParams = useSearchParams();
 
   const scrollTo = useCallback((id: string) => {
@@ -94,6 +98,44 @@ export default function Dashboard() {
     setLoading(true);
     void load(slug);
   }, [load]);
+
+  const loadDecisions = useCallback(async (slug: string, taskId: string) => {
+    try {
+      const response = await fetch(`/api/decisions?board=${encodeURIComponent(slug)}&taskId=${encodeURIComponent(taskId)}`, { cache: "no-store" });
+      if (response.ok) setDecisions(((await response.json()) as { decisions: DecisionRecord[] }).decisions);
+    } catch {}
+  }, []);
+
+  const selectedTaskId = selectedTask?.id;
+  useEffect(() => {
+    if (!selectedTaskId) return;
+    const timer = window.setTimeout(() => void loadDecisions(board, selectedTaskId), 0);
+    return () => window.clearTimeout(timer);
+  }, [board, selectedTaskId, loadDecisions]);
+
+  async function submitDecision(action: "approve" | "reject" | "hold") {
+    if (!selectedTask) return;
+    if (["reject", "hold"].includes(action) && decisionComment.trim().length < 5) { setDecisionMessage("Podaj powód — minimum 5 znaków."); return; }
+    const labels = { approve: "zaakceptować i odblokować", reject: "odrzucić", hold: "zablokować" };
+    if (!window.confirm(`Czy na pewno chcesz ${labels[action]} zadanie ${selectedTask.id}? Akcja dotyczy tylko tej karty.`)) return;
+    setDecisionBusy(true); setDecisionMessage("");
+    try {
+      const response = await fetch("/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ board, taskId: selectedTask.id, action, comment: decisionComment }) });
+      const result = await response.json() as { id?: string; error?: string };
+      if (!response.ok) throw new Error(result.error || "Nie udało się zapisać decyzji");
+      setDecisionMessage("Decyzja zapisana. Hermes aktualizuje kartę…");
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        const history = await fetch(`/api/decisions?board=${encodeURIComponent(board)}&taskId=${encodeURIComponent(selectedTask.id)}`, { cache: "no-store" });
+        const rows = ((await history.json()) as { decisions: DecisionRecord[] }).decisions;
+        setDecisions(rows);
+        const current = rows.find((item) => item.id === result.id);
+        if (current?.status === "failed") throw new Error(current.lastError || "Broker odrzucił decyzję");
+        if (current?.status === "done") { setDecisionMessage(`Gotowe: ${current.fromStatus} → ${current.resultStatus}.`); setDecisionComment(""); await load(board); break; }
+      }
+    } catch (error) { setDecisionMessage(error instanceof Error ? error.message : "Błąd decyzji"); }
+    finally { setDecisionBusy(false); }
+  }
 
   const visibleTasks = useMemo(() => data?.tasks.filter((task) => agentFilter === "all" || task.assignee === agentFilter) || [], [data, agentFilter]);
   const active = data?.agents.filter((agent) => agent.status === "working").length || 0;
@@ -157,7 +199,7 @@ export default function Dashboard() {
 
       <div className="workspace-grid">
         <section className="board-panel">
-          <div className="section-head"><div><p className="eyebrow">{board.toUpperCase()}</p><h2>Delivery board</h2></div><span className="read-only">Read only</span></div>
+          <div className="section-head"><div><p className="eyebrow">{board.toUpperCase()}</p><h2>Delivery board</h2></div><span className="secure-write">Zarządzanie chronione 2FA</span></div>
           <div className="kanban-scroll"><div className="kanban-board">{STATUSES.map((status) => {
             const tasks = visibleTasks.filter((task) => task.status === status);
             return <section className={`kanban-column ${status}`} key={status} aria-label={statusLabel[status]}><header><span className="status-dot"/><strong>{statusLabel[status]}</strong><b>{tasks.length}</b></header><div className="task-stack">
@@ -176,9 +218,20 @@ export default function Dashboard() {
 
     {selectedTask && <div className="drawer-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) setSelectedTask(null); }}><aside className="task-drawer" role="dialog" aria-modal="true" aria-labelledby="task-title"><header><div><code>{selectedTask.id}</code><span className={`status-badge ${selectedTask.status}`}>{selectedTask.status}</span></div><button aria-label="Zamknij" onClick={() => setSelectedTask(null)}>×</button></header><h2 id="task-title">{selectedTask.title}</h2><p className="task-body">{selectedTask.body || "Brak opisu."}</p>
       <dl><div><dt>Agent</dt><dd>{selectedTask.assignee || "Nieprzypisany"}</dd></div><div><dt>Priorytet</dt><dd>P{selectedTask.priority}</dd></div><div><dt>Branch</dt><dd>{selectedTask.branchName || "—"}</dd></div><div><dt>Heartbeat</dt><dd>{relativeTime(selectedTask.lastHeartbeatAt)}</dd></div></dl>
+      <section className="decision-box"><h3>Decyzja CEO</h3><p>Akcja dotyczy tylko tej karty. PM decyduje, który agent podejmie dalszą pracę; zadania zależne nie są odblokowywane ręcznie.</p>
+        <textarea value={decisionComment} onChange={(event) => setDecisionComment(event.target.value)} maxLength={2000} rows={3} placeholder={selectedTask.status === "blocked" ? "Komentarz dla PM (opcjonalny przy akceptacji, wymagany przy odrzuceniu)" : "Powód decyzji"}/>
+        <div className="decision-actions">
+          {["blocked", "scheduled"].includes(selectedTask.status) && <button type="button" className="approve" disabled={decisionBusy} onClick={() => void submitDecision("approve")}>{decisionBusy ? "Zapisywanie…" : "Akceptuj i odblokuj"}</button>}
+          {["blocked", "ready", "running"].includes(selectedTask.status) && <button type="button" className="reject" disabled={decisionBusy} onClick={() => void submitDecision("reject")}>Odrzuć / zwróć do poprawy</button>}
+          {["todo", "ready", "running"].includes(selectedTask.status) && <button type="button" disabled={decisionBusy} onClick={() => void submitDecision("hold")}>Zablokuj i poproś o decyzję</button>}
+        </div>
+        {selectedTask.status === "review" && <p className="decision-note">Hermes nie udostępnia bezpiecznej komendy akceptacji statusu review. Ta karta musi wrócić do natywnego workflow PM/reviewera.</p>}
+        {decisionMessage && <p className="decision-message">{decisionMessage}</p>}
+      </section>
       <section><h3>Dependencies</h3><p>{selectedTask.parentIds.length ? `Parents: ${selectedTask.parentIds.join(", ")}` : "Brak zależności nadrzędnych"}</p>{selectedTask.childIds.length > 0 && <p>Children: {selectedTask.childIds.join(", ")}</p>}</section>
       <section><h3>Run history <span>{selectedTask.runs.length}</span></h3>{selectedTask.runs.map((run) => <article className="run" key={run.id}><div><strong>{run.profile || "worker"}</strong><span>{run.outcome || run.status}</span></div><small>{relativeTime(run.startedAt)}</small>{run.summary && <p>{run.summary}</p>}{run.error && <p className="run-error">{run.error}</p>}</article>)}{!selectedTask.runs.length && <p>Brak prób wykonania.</p>}</section>
       <section><h3>Comments <span>{selectedTask.comments.length}</span></h3>{selectedTask.comments.map((comment) => <article className="comment" key={comment.id}><div><strong>{comment.author}</strong><small>{relativeTime(comment.createdAt)}</small></div><p>{comment.body}</p></article>)}{!selectedTask.comments.length && <p>Brak komentarzy.</p>}</section>
+      <section><h3>Historia decyzji <span>{decisions.length}</span></h3>{decisions.map((decision) => <article className="decision-log" key={decision.id}><div><strong>{decision.action}</strong><span className={decision.status}>{decision.status}</span></div><p>{decision.fromStatus} → {decision.resultStatus || decision.toStatus || "oczekuje"}</p>{decision.comment && <p>{decision.comment}</p>}<small>{relativeTime(decision.createdAt)}</small></article>)}{!decisions.length && <p>Brak decyzji CEO.</p>}</section>
     </aside></div>}
   </div>;
 }

@@ -10,6 +10,14 @@ export type Idea = {
   lastError: string | null; createdAt: number; updatedAt: number;
 };
 
+export type DecisionAction = "approve" | "reject" | "resume" | "hold";
+
+export type DecisionRecord = {
+  id: string; board: string; taskId: string; action: DecisionAction; fromStatus: string;
+  toStatus: string | null; comment: string; status: string; resultStatus: string | null;
+  lastError: string | null; createdAt: number; updatedAt: number;
+};
+
 function openState() {
   fs.mkdirSync(path.dirname(statePath), { recursive: true });
   const db = new Database(statePath);
@@ -33,8 +41,35 @@ function openState() {
       id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL,
       target TEXT, detail TEXT, ip TEXT, created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS task_decisions (
+      id TEXT PRIMARY KEY, board TEXT NOT NULL, task_id TEXT NOT NULL, action TEXT NOT NULL,
+      from_status TEXT NOT NULL, to_status TEXT, comment TEXT NOT NULL, status TEXT NOT NULL,
+      result_status TEXT, last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_task_decisions_pending
+      ON task_decisions(board, task_id) WHERE status IN ('queued','running');
   `);
   return db;
+}
+
+export function enqueueDecision(input: { board: string; taskId: string; action: DecisionAction; fromStatus: string; toStatus: string | null; comment: string }) {
+  const db = openState();
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const id = `decision_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+    db.prepare("INSERT INTO task_decisions(id,board,task_id,action,from_status,to_status,comment,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'queued',?,?)")
+      .run(id, input.board, input.taskId, input.action, input.fromStatus, input.toStatus, input.comment, now, now);
+    return { id, status: "queued" };
+  } finally { db.close(); }
+}
+
+export function listDecisions(board?: string, taskId?: string): DecisionRecord[] {
+  const db = openState();
+  try {
+    const where = board && taskId ? "WHERE board=? AND task_id=?" : "";
+    const params = board && taskId ? [board, taskId] : [];
+    return db.prepare(`SELECT id,board,task_id taskId,action,from_status fromStatus,to_status toStatus,comment,status,result_status resultStatus,last_error lastError,created_at createdAt,updated_at updatedAt FROM task_decisions ${where} ORDER BY created_at DESC LIMIT 200`).all(...params) as DecisionRecord[];
+  } finally { db.close(); }
 }
 
 export function listIdeas(): Idea[] {
