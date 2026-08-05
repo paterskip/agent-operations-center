@@ -77,3 +77,18 @@ export interface IdeaRecord {
   createdAt: number;
   updatedAt: number;
 }
+
+export interface DecisionRecord {
+  id: string;
+  board: string;
+  taskId: string;
+  action: "approve" | "reject" | "resume" | "hold";
+  fromStatus: string;
+  toStatus: string | null;
+  comment: string;
+  status: string;
+  resultStatus: string | null;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
