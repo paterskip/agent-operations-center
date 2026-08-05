@@ -63,3 +63,17 @@ export interface DashboardSnapshot {
   tasks: TaskCard[];
   activity: ActivityEvent[];
 }
+
+export interface IdeaRecord {
+  id: string;
+  title: string;
+  description: string;
+  project: string;
+  priority: number;
+  mode: "draft" | "analysis";
+  status: string;
+  hermesTaskId: string | null;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}

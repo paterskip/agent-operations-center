@@ -1,0 +1,10 @@
+[Unit]
+Description=Process approved AOC command queue
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=5s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

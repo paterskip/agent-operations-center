@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ActivityEvent, DashboardSnapshot, TaskCard } from "@/lib/types";
+import type { ActivityEvent, DashboardSnapshot, IdeaRecord, TaskCard } from "@/lib/types";
 import { STATUSES } from "@/lib/types";
 
 const roleIcon: Record<string, string> = { pm: "◆", coder: "⌘", "coder-parallel": "⌘", designer: "✦", tester: "✓", reviewer: "◇" };
@@ -29,6 +29,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [live, setLive] = useState(false);
+  const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
+  const [ideaMessage, setIdeaMessage] = useState("");
+  const [submittingIdea, setSubmittingIdea] = useState(false);
 
   const load = useCallback(async (slug?: string) => {
     try {
@@ -41,15 +44,36 @@ export default function Dashboard() {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  const loadIdeas = useCallback(async () => {
+    try {
+      const response = await fetch("/api/ideas", { cache: "no-store" });
+      if (response.ok) setIdeas(((await response.json()) as { ideas: IdeaRecord[] }).ideas);
+    } catch {}
+  }, []);
+
+  useEffect(() => { const timer = window.setTimeout(() => { void load(); void loadIdeas(); }, 0); return () => window.clearTimeout(timer); }, [load, loadIdeas]);
   useEffect(() => {
     const source = new EventSource("/api/events");
     source.addEventListener("ready", () => setLive(true));
-    source.addEventListener("change", () => load(board));
+    source.addEventListener("change", () => { load(board); loadIdeas(); });
     source.addEventListener("source-error", () => setLive(false));
     source.onerror = () => setLive(false);
     return () => { setLive(false); source.close(); };
-  }, [board, load]);
+  }, [board, load, loadIdeas]);
+
+  async function submitIdea(formElement: HTMLFormElement, mode: "draft" | "analysis") {
+    setSubmittingIdea(true); setIdeaMessage("");
+    const form = new FormData(formElement);
+    const payload = { title: form.get("title"), description: form.get("description"), project: form.get("project"), priority: Number(form.get("priority")), mode };
+    try {
+      const response = await fetch("/api/ideas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Nie udało się zapisać pomysłu");
+      setIdeaMessage(mode === "draft" ? "Szkic zapisany." : "Pomysł wysłany do PM.");
+      formElement.reset(); await loadIdeas();
+    } catch (error) { setIdeaMessage(error instanceof Error ? error.message : "Błąd zapisu"); }
+    finally { setSubmittingIdea(false); }
+  }
 
   const visibleTasks = useMemo(() => data?.tasks.filter((task) => agentFilter === "all" || task.assignee === agentFilter) || [], [data, agentFilter]);
   const active = data?.agents.filter((agent) => agent.status === "working").length || 0;
@@ -63,6 +87,7 @@ export default function Dashboard() {
       <div className="brand"><span className="brand-mark">A</span><div><strong>Agent Ops</strong><small>Mission Control</small></div></div>
       <nav aria-label="Główna nawigacja">
         <a className="nav-item active" href="#board"><span>⌁</span> Operations</a>
+        <a className="nav-item" href="#inbox"><span>＋</span> CEO Inbox</a>
         <a className="nav-item" href="#agents"><span>◎</span> Agents</a>
         <a className="nav-item" href="#activity"><span>≋</span> Activity</a>
       </nav>
@@ -86,6 +111,21 @@ export default function Dashboard() {
         {data.boards.map((item) => <button key={item.slug} className={`project-chip ${board === item.slug ? "selected" : ""}`} onClick={() => { setLoading(true); load(item.slug); }}>
           <span className="project-icon">{item.icon}</span><span><strong>{item.name}</strong><small>{item.counts.running || 0} active · {item.counts.blocked || 0} blocked</small></span>
         </button>)}
+      </section>
+
+      <section className="inbox-panel" id="inbox">
+        <div className="section-head"><div><p className="eyebrow">CEO WORKSPACE</p><h2>CEO Inbox</h2></div><span className="secure-write">2FA protected</span></div>
+        <div className="inbox-grid">
+          <form className="idea-form" onSubmit={(event) => { event.preventDefault(); void submitIdea(event.currentTarget, "analysis"); }}>
+            <label><span>Projekt docelowy</span><select name="project" required defaultValue=""><option value="" disabled>Wybierz projekt</option>{data.boards.filter((item) => !["default", "portfolio"].includes(item.slug)).map((item) => <option value={item.slug} key={item.slug}>{item.name}</option>)}</select></label>
+            <label><span>Tytuł pomysłu / feature</span><input name="title" minLength={3} maxLength={160} required placeholder="Np. automatyczne raporty skuteczności" /></label>
+            <label><span>Problem, pomysł i oczekiwany efekt</span><textarea name="description" minLength={10} maxLength={6000} required rows={5} placeholder="Co chcemy osiągnąć, dla kogo i po czym poznamy sukces?" /></label>
+            <label><span>Priorytet</span><select name="priority" defaultValue="2"><option value="1">P1 — niski</option><option value="2">P2 — normalny</option><option value="3">P3 — wysoki</option><option value="4">P4 — krytyczny</option></select></label>
+            <div className="idea-actions"><button type="button" disabled={submittingIdea} onClick={(event) => { const form = event.currentTarget.form; if (form) void submitIdea(form, "draft"); }}>Zapisz szkic</button><button className="primary" type="submit" disabled={submittingIdea}>{submittingIdea ? "Wysyłanie…" : "Wyślij PM do analizy"}</button></div>
+            {ideaMessage && <p className="form-message">{ideaMessage}</p>}
+          </form>
+          <div className="idea-list"><header><strong>Pomysły i analizy</strong><span>{ideas.length}</span></header>{ideas.map((idea) => <article key={idea.id}><div><span className={`idea-status ${idea.status}`}>{idea.status}</span><code>{idea.project} · P{idea.priority}</code></div><h3>{idea.title}</h3><p>{idea.description}</p><footer><span>{idea.hermesTaskId ? `Hermes: ${idea.hermesTaskId}` : idea.mode === "draft" ? "Szkic lokalny" : "Oczekuje na bridge"}</span><time>{relativeTime(idea.updatedAt)}</time></footer></article>)}{!ideas.length && <div className="empty-activity"><span>＋</span><p>Dodaj pierwszy pomysł dla PM.</p></div>}</div>
+        </div>
       </section>
 
       <section className="agent-presence" id="agents">
