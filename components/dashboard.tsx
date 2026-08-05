@@ -68,14 +68,22 @@ export default function Dashboard() {
   }, []);
 
   const load = useCallback(async (slug?: string) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(`/api/snapshot${slug ? `?board=${encodeURIComponent(slug)}` : ""}`, { cache: "no-store" });
-      if (!res.ok) throw new Error((await res.json()).error || "Błąd API");
+      const res = await fetch(`/api/snapshot${slug ? `?board=${encodeURIComponent(slug)}` : ""}`, { cache: "no-store", signal: controller.signal });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(res.status === 401 ? "Sesja wygasła — odśwież stronę i zaloguj się ponownie." : `Błąd API (${res.status}): ${body}`);
+      }
       const snap = await res.json() as DashboardSnapshot;
       setData(snap); setBoard(snap.selectedBoard); setError("");
       setSelectedTask((c) => c ? snap.tasks.find((t) => t.id === c.id) || null : null);
-    } catch (e) { setError(e instanceof Error ? e.message : "Nie udało się pobrać danych"); }
-    finally { setLoading(false); }
+    } catch (e) {
+      const msg = e instanceof DOMException && e.name === "AbortError" ? "Przekroczono czas połączenia — spróbuj ponownie." : e instanceof Error ? e.message : "Nie udało się pobrać danych";
+      setError(msg);
+    }
+    finally { clearTimeout(timer); setLoading(false); }
   }, []);
 
   const loadIdeas = useCallback(async () => {
