@@ -75,18 +75,6 @@ function readTasks(board: BoardRecord): TaskCard[] {
   } finally { db.close(); }
 }
 
-function readActivity(boards: BoardRecord[], limit = 60): ActivityEvent[] {
-  const events: ActivityEvent[] = [];
-  for (const board of boards) {
-    const db = openReadOnly(board.dbPath);
-    try {
-      const rows = db.prepare("SELECT e.id,e.task_id,e.kind,e.payload,e.created_at,t.title,t.assignee FROM task_events e LEFT JOIN tasks t ON t.id=e.task_id ORDER BY e.created_at DESC LIMIT ?").all(limit) as AnyRow[];
-      events.push(...rows.map((r) => ({ id: Number(r.id), taskId: String(r.task_id), kind: String(r.kind), payload: null, createdAt: Number(r.created_at), board: board.slug, taskTitle: String(r.title || r.task_id), assignee: r.assignee == null ? null : String(r.assignee) })));
-    } finally { db.close(); }
-  }
-  return events.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
-}
-
 function profileDescriptions(): Map<string, string> {
   const profiles = new Map<string, string>();
   for (const name of (process.env.AOC_AGENTS || "pm,coder,coder-parallel,designer,tester,reviewer").split(",").map((item) => item.trim()).filter(Boolean)) profiles.set(name, "Hermes specialist");
@@ -114,14 +102,44 @@ function agentSummaries(boards: BoardRecord[], tasksByBoard: Map<string, TaskCar
   });
 }
 
+function safeReadTasks(board: BoardRecord): TaskCard[] {
+  try { return readTasks(board); } catch { return []; }
+}
+
+function safeBoardSummary(board: BoardRecord): BoardSummary {
+  try { return boardSummary(board); } catch {
+    return { slug: board.slug, name: board.name, description: board.description || "", icon: board.icon || "◈", color: board.color || "", counts: {}, lastActivityAt: null };
+  }
+}
+
+function safeReadActivity(boards: BoardRecord[], limit = 60): ActivityEvent[] {
+  const events: ActivityEvent[] = [];
+  for (const board of boards) {
+    try {
+      const db = openReadOnly(board.dbPath);
+      try {
+        const rows = db.prepare("SELECT e.id,e.task_id,e.kind,e.payload,e.created_at,t.title,t.assignee FROM task_events e LEFT JOIN tasks t ON t.id=e.task_id ORDER BY e.created_at DESC LIMIT ?").all(limit) as AnyRow[];
+        events.push(...rows.map((r) => ({ id: Number(r.id), taskId: String(r.task_id), kind: String(r.kind), payload: null, createdAt: Number(r.created_at), board: board.slug, taskTitle: String(r.title || r.task_id), assignee: r.assignee == null ? null : String(r.assignee) })));
+      } finally { db.close(); }
+    } catch { /* skip board */ }
+  }
+  return events.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+}
+
 export function getSnapshot(requestedBoard?: string | null): DashboardSnapshot {
   const boards = discoverBoards();
   if (!boards.length) throw new Error("No Hermes Kanban boards found");
-  const tasksByBoard = new Map(boards.map((board) => [board.slug, readTasks(board)]));
+  const tasksByBoard = new Map(boards.map((board) => [board.slug, safeReadTasks(board)]));
   let current = "";
   try { current = fs.readFileSync(path.join(kanbanRoot, "current"), "utf8").trim(); } catch {}
   const selected = boards.find((board) => board.slug === requestedBoard) || boards.find((board) => board.slug === current) || boards[0];
-  return { generatedAt: Date.now(), selectedBoard: selected.slug, boards: boards.map(boardSummary), agents: agentSummaries(boards, tasksByBoard), tasks: tasksByBoard.get(selected.slug) || [], activity: readActivity(boards) };
+  return {
+    generatedAt: Date.now(), selectedBoard: selected.slug,
+    boards: boards.map(safeBoardSummary),
+    agents: agentSummaries(boards, tasksByBoard),
+    tasks: tasksByBoard.get(selected.slug) || [],
+    activity: safeReadActivity(boards),
+  };
 }
 
 export function activityCursor(): string {
