@@ -16,21 +16,32 @@ db.exec(`
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_task_decisions_pending
     ON task_decisions(board, task_id) WHERE status IN ('queued','running');
+  CREATE TABLE IF NOT EXISTS task_moves (
+    id TEXT PRIMARY KEY, board TEXT NOT NULL, task_id TEXT NOT NULL, action TEXT NOT NULL,
+    from_status TEXT, to_status TEXT, title TEXT, body TEXT,
+    assignee TEXT, priority INTEGER, comment TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL, result_status TEXT, last_error TEXT,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_task_moves_pending
+    ON task_moves(board, task_id) WHERE status IN ('queued','running');
 `);
+
+function now() { return Math.floor(Date.now() / 1000); }
 
 function runOne() {
   const command = db.prepare("SELECT id,idea_id ideaId FROM commands WHERE status='pending' AND attempts < 3 ORDER BY id LIMIT 1").get();
   if (!command) return false;
   const idea = db.prepare("SELECT * FROM ideas WHERE id=?").get(command.ideaId);
-  const now = Math.floor(Date.now() / 1000);
-  db.prepare("UPDATE commands SET status='running', attempts=attempts+1, updated_at=? WHERE id=?").run(now, command.id);
+  const ts = now();
+  db.prepare("UPDATE commands SET status='running', attempts=attempts+1, updated_at=? WHERE id=?").run(ts, command.id);
   try {
     const body = [
       `Projekt docelowy: ${idea.project}`,
-      `Pomysł CEO: ${idea.description}`,
-      "Przygotuj analizę wartości, kosztu, ryzyka i rekomendację. Nie wdrażaj kodu.",
-      "Jeśli potrzebny jest research, utwórz osobną kartę dla reviewera i odnotuj jej ID.",
-      "Po analizie zablokuj kartę jako needs_input i poproś CEO o decyzję."
+      `Pomys\u0142 CEO: ${idea.description}`,
+      "Przygotuj analiz\u0119 warto\u015bci, kosztu, ryzyka i rekomendacj\u0119. Nie wdra\u017caj kodu.",
+      "Je\u015bli potrzebny jest research, utw\u00f3rz osobn\u0105 kart\u0119 dla reviewera i odnotuj jej ID.",
+      "Po analizie zablokuj kart\u0119 jako needs_input i popro\u015b CEO o decyzj\u0119."
     ].join("\n\n");
     const key = createHash("sha256").update(`aoc:${idea.id}`).digest("hex");
     const output = execFileSync(hermes, ["kanban", "--board", "portfolio", "create", idea.title, "--body", body, "--assignee", "pm", "--priority", String(idea.priority), "--created-by", "CEO Web", "--idempotency-key", key, "--json"], {
@@ -39,15 +50,15 @@ function runOne() {
     const parsed = JSON.parse(output);
     const taskId = parsed.id || parsed.task_id;
     db.transaction(() => {
-      db.prepare("UPDATE ideas SET status='submitted', hermes_task_id=?, last_error=NULL, updated_at=? WHERE id=?").run(taskId, now, idea.id);
-      db.prepare("UPDATE commands SET status='done', updated_at=? WHERE id=?").run(now, command.id);
-      db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','hermes.create',?,?,NULL,?)").run(idea.id, taskId, now);
+      db.prepare("UPDATE ideas SET status='submitted', hermes_task_id=?, last_error=NULL, updated_at=? WHERE id=?").run(taskId, ts, idea.id);
+      db.prepare("UPDATE commands SET status='done', updated_at=? WHERE id=?").run(ts, command.id);
+      db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','hermes.create',?,?,NULL,?)").run(idea.id, taskId, ts);
     })();
   } catch (error) {
     const message = String(error instanceof Error ? error.message : error).slice(0, 500);
     db.transaction(() => {
-      db.prepare("UPDATE commands SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END, updated_at=? WHERE id=?").run(now, command.id);
-      db.prepare("UPDATE ideas SET status='queue_error', last_error=?, updated_at=? WHERE id=?").run(message, now, idea.id);
+      db.prepare("UPDATE commands SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END, updated_at=? WHERE id=?").run(ts, command.id);
+      db.prepare("UPDATE ideas SET status='queue_error', last_error=?, updated_at=? WHERE id=?").run(message, ts, idea.id);
     })();
   }
   return true;
@@ -73,8 +84,8 @@ function taskState(board, taskId) {
 function processDecision() {
   const decision = db.prepare("SELECT id,board,task_id taskId,action,from_status fromStatus,comment FROM task_decisions WHERE status='queued' ORDER BY created_at LIMIT 1").get();
   if (!decision) return false;
-  const now = Math.floor(Date.now() / 1000);
-  db.prepare("UPDATE task_decisions SET status='running', updated_at=? WHERE id=? AND status='queued'").run(now, decision.id);
+  const ts = now();
+  db.prepare("UPDATE task_decisions SET status='running', updated_at=? WHERE id=? AND status='queued'").run(ts, decision.id);
   try {
     const before = taskState(decision.board, decision.taskId);
     if (before.status !== decision.fromStatus) throw new Error(`Task status changed from ${decision.fromStatus} to ${before.status}`);
@@ -94,22 +105,94 @@ function processDecision() {
     const allowed = decision.action === "approve" || decision.action === "resume" ? ["ready", "todo"] : ["blocked", "triage"];
     if (!allowed.includes(after.status)) throw new Error(`Unexpected resulting status ${after.status}`);
     db.transaction(() => {
-      db.prepare("UPDATE task_decisions SET status='done', result_status=?, last_error=NULL, updated_at=? WHERE id=?").run(after.status, now, decision.id);
+      db.prepare("UPDATE task_decisions SET status='done', result_status=?, last_error=NULL, updated_at=? WHERE id=?").run(after.status, ts, decision.id);
       db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker',?,?,?,NULL,?)")
-        .run(`task.${decision.action}.done`, `${decision.board}/${decision.taskId}`, `${before.status}->${after.status}; decision=${decision.id}`, now);
+        .run(`task.${decision.action}.done`, `${decision.board}/${decision.taskId}`, `${before.status}->${after.status}; decision=${decision.id}`, ts);
     })();
   } catch (error) {
     const message = String(error instanceof Error ? error.message : error).slice(0, 500);
     db.transaction(() => {
-      db.prepare("UPDATE task_decisions SET status='failed', last_error=?, updated_at=? WHERE id=?").run(message, now, decision.id);
+      db.prepare("UPDATE task_decisions SET status='failed', last_error=?, updated_at=? WHERE id=?").run(message, ts, decision.id);
       db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','task.decision.failed',?,?,NULL,?)")
-        .run(`${decision.board}/${decision.taskId}`, `${decision.id}: ${message}`, now);
+        .run(`${decision.board}/${decision.taskId}`, `${decision.id}: ${message}`, ts);
     })();
   }
   return true;
 }
 
-try { while (runOne() || processDecision()) {} } finally { db.close(); }
+function processMove() {
+  const move = db.prepare("SELECT id,board,task_id taskId,action,from_status fromStatus,to_status toStatus,title,body,assignee,priority,comment FROM task_moves WHERE status='queued' ORDER BY created_at LIMIT 1").get();
+  if (!move) return false;
+  const ts = now();
+  db.prepare("UPDATE task_moves SET status='running', updated_at=? WHERE id=? AND status='queued'").run(ts, move.id);
+  try {
+    if (move.action === "create") {
+      // Create new task via Hermes CLI
+      const args = ["create", move.title, "--body", move.body || "Created from AOC panel",
+        "--priority", String(move.priority || 2), "--json"];
+      const output = runHermes(move.board, args);
+      const parsed = JSON.parse(output);
+      const createdId = parsed.id || parsed.task_id;
+      db.transaction(() => {
+        db.prepare("UPDATE task_moves SET status='done', result_status=?, last_error=NULL, updated_at=? WHERE id=?")
+          .run(`created:${createdId}`, ts, move.id);
+        db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','task.create.done',?,?,NULL,?)")
+          .run(`${move.board}/${createdId}`, `move.id=${move.id}`, ts);
+      })();
+    } else {
+      // Move task between statuses
+      const task = taskState(move.board, move.taskId);
+      if (task.status !== move.fromStatus) throw new Error(`Task status changed from ${move.fromStatus} to ${task.status}`);
+
+      const transition = `${move.fromStatus}\u2192${move.toStatus}`;
+
+      // Map transitions to Hermes CLI commands
+      if (move.fromStatus === "triage" && move.toStatus === "todo") {
+        // No direct Hermes command; triage→todo is implicit. Do nothing.
+        runHermes(move.board, ["comment", move.taskId, `CEO moved: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
+      } else if (move.fromStatus === "todo" && move.toStatus === "scheduled") {
+        runHermes(move.board, ["schedule", move.taskId, "CEO scheduled via Kanban panel"]);
+      } else if (move.fromStatus === "scheduled" && move.toStatus === "todo") {
+        // Deschedule: move back to todo. No direct Hermes command for this.
+        // Use unblock as a workaround if possible, otherwise just comment.
+        runHermes(move.board, ["comment", move.taskId, `CEO descheduled: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
+      } else if (move.fromStatus === "scheduled" && move.toStatus === "ready") {
+        runHermes(move.board, ["promote", move.taskId, "CEO promoted via Kanban panel"]);
+      } else if (move.fromStatus === "ready" && move.toStatus === "todo") {
+        runHermes(move.board, ["comment", move.taskId, `CEO moved back to todo: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
+      } else if (move.fromStatus === "ready" && move.toStatus === "running") {
+        runHermes(move.board, ["promote", move.taskId, "CEO promoted via Kanban panel"]);
+      } else if (move.fromStatus === "running" && move.toStatus === "blocked") {
+        runHermes(move.board, ["block", move.taskId, "CEO blocked via Kanban panel", "--kind", "needs_input"]);
+      } else if (move.fromStatus === "running" && move.toStatus === "review") {
+        const result = move.comment.includes("CEO drag") ? "Moved to review by CEO" : move.comment;
+        runHermes(move.board, ["complete", move.taskId, "--result", result]);
+      } else if (move.fromStatus === "review" && move.toStatus === "done") {
+        runHermes(move.board, ["comment", move.taskId, `CEO accepted review: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
+      } else if (move.fromStatus === "done" && move.toStatus === "todo") {
+        runHermes(move.board, ["comment", move.taskId, `CEO reopened: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
+      } else {
+        throw new Error(`Unsupported transition: ${transition}`);
+      }
+
+      const after = taskState(move.board, move.taskId);
+      db.transaction(() => {
+        db.prepare("UPDATE task_moves SET status='done', result_status=?, last_error=NULL, updated_at=? WHERE id=?")
+          .run(after.status, ts, move.id);
+        db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','task.move.done',?,?,NULL,?)")
+          .run(`${move.board}/${move.taskId}`, `${move.fromStatus}->${after.status}; move.id=${move.id}`, ts);
+      })();
+    }
+  } catch (error) {
+    const message = String(error instanceof Error ? error.message : error).slice(0, 500);
+    db.transaction(() => {
+      db.prepare("UPDATE task_moves SET status='failed', last_error=?, updated_at=? WHERE id=?").run(message, ts, move.id);
+      db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','task.move.failed',?,?,NULL,?)")
+        .run(`${move.board}/${move.taskId}`, `${move.id}: ${message}`, ts);
+    })();
+  }
+  return true;
+}
 
 // --- Backup Kanban before broker cycle ---
 function backupKanban() {
@@ -125,7 +208,6 @@ function backupKanban() {
     const dest = path.join(backupDir, `${slug}-${timestamp}.db`);
     fs.copyFileSync(src, dest);
   }
-  // Keep only last 10 backups per board
   for (const slug of fs.readdirSync(boardsDir)) {
     if (slug.startsWith("_") || slug.includes("..")) continue;
     const backups = fs.readdirSync(backupDir).filter((f) => f.startsWith(`${slug}-`) && f.endsWith(".db")).sort().reverse();
@@ -133,4 +215,4 @@ function backupKanban() {
   }
 }
 
-try { backupKanban(); while (runOne() || processDecision()) {} } finally { db.close(); }
+try { backupKanban(); while (runOne() || processDecision() || processMove()) {} } finally { db.close(); }

@@ -48,6 +48,15 @@ function openState() {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_task_decisions_pending
       ON task_decisions(board, task_id) WHERE status IN ('queued','running');
+    CREATE TABLE IF NOT EXISTS task_moves (
+      id TEXT PRIMARY KEY, board TEXT NOT NULL, task_id TEXT NOT NULL, action TEXT NOT NULL,
+      from_status TEXT, to_status TEXT, title TEXT, body TEXT,
+      assignee TEXT, priority INTEGER, comment TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL, result_status TEXT, last_error TEXT,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_task_moves_pending
+      ON task_moves(board, task_id) WHERE status IN ('queued','running');
   `);
   return db;
 }
@@ -129,4 +138,44 @@ export function audit(actor: string, action: string, target: string | null, deta
   const db = openState();
   try { db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES(?,?,?,?,?,?)").run(actor, action, target, detail, ip, Math.floor(Date.now() / 1000)); }
   finally { db.close(); }
+}
+
+export type TaskMoveAction = "create" | "move";
+
+export type MoveRecord = {
+  id: string; board: string; taskId: string; action: TaskMoveAction;
+  fromStatus: string | null; toStatus: string | null; title: string | null;
+  body: string | null; assignee: string | null; priority: number | null;
+  comment: string; status: string; resultStatus: string | null;
+  lastError: string | null; createdAt: number; updatedAt: number;
+};
+
+export function enqueueMove(input: {
+  action: TaskMoveAction; board: string; taskId: string;
+  title?: string; body?: string; assignee?: string; priority?: number;
+  fromStatus?: string; toStatus?: string; comment?: string;
+}) {
+  const db = openState();
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const id = `move_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+    db.prepare(`INSERT INTO task_moves(id,board,task_id,action,from_status,to_status,title,body,assignee,priority,comment,status,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,'queued',?,?)`)
+      .run(id, input.board, input.taskId, input.action, input.fromStatus || null, input.toStatus || null,
+        input.title || null, input.body || null, input.assignee || null, input.priority ?? null,
+        input.comment || "", now, now);
+    return { id, status: "queued" };
+  } finally { db.close(); }
+}
+
+export function listMoves(board?: string, taskId?: string): MoveRecord[] {
+  const db = openState();
+  try {
+    const where = board && taskId ? "WHERE board=? AND task_id=?" : "";
+    const params = board && taskId ? [board, taskId] : [];
+    return db.prepare(`SELECT id,board,task_id taskId,action,from_status fromStatus,to_status toStatus,
+      title,body,assignee,priority,comment,status,result_status resultStatus,
+      last_error lastError,created_at createdAt,updated_at updatedAt
+      FROM task_moves ${where} ORDER BY created_at DESC LIMIT 200`).all(...params) as MoveRecord[];
+  } finally { db.close(); }
 }

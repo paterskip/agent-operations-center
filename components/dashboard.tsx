@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ActivityEvent, DashboardSnapshot, DecisionRecord, IdeaRecord, TaskCard } from "@/lib/types";
 import { STATUSES } from "@/lib/types";
 import SearchModal from "./search-modal";
@@ -16,6 +16,17 @@ const statusHelp: Record<string, string> = {
   blocked: "Zadanie zablokowane — czeka na decyzję CEO lub zależność.",
   review: "Gotowe do przeglądu. PM lub reviewer musi zweryfikować.",
   done: "Zakończone pomyślnie.",
+};
+
+const ALLOWED_DROP_TARGETS: Record<string, string[]> = {
+  triage: ["triage", "todo"],
+  todo: ["triage", "todo", "scheduled"],
+  scheduled: ["todo", "scheduled", "ready"],
+  ready: ["todo", "scheduled", "ready", "running"],
+  running: ["ready", "running", "blocked", "review"],
+  blocked: ["blocked"], // CEO unblock via decision, not DnD
+  review: ["running", "review", "done"],
+  done: ["review", "done", "todo"],
 };
 
 function relativeTime(timestamp: number | null) {
@@ -34,6 +45,7 @@ function eventSummary(event: ActivityEvent) { return eventLabels[event.kind] || 
 type ViewMode = "overview" | "board";
 type ToastItem = { id: number; text: string; kind: "info" | "success" | "warning" };
 
+const SELECTED_BOARDS_KEY = "aoc_project";
 let toastId = 0;
 
 export default function Dashboard() {
@@ -55,6 +67,18 @@ export default function Dashboard() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+
+  // ── DnD state ──
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  const [dragOrigin, setDragOrigin] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  // ── Task Creator state ──
+  const [creatorOpen, setCreatorOpen] = useState(false);
+  const [creatorError, setCreatorError] = useState("");
+  const [creatorBusy, setCreatorBusy] = useState(false);
+  const creatorFormRef = useRef<HTMLFormElement | null>(null);
+  const [creatorBoard, setCreatorBoard] = useState("");
 
   function addToast(text: string, kind: ToastItem["kind"] = "info") {
     const id = ++toastId;
@@ -107,7 +131,6 @@ export default function Dashboard() {
     return () => { setLive(false); es.close(); };
   }, [view, board, load, loadIdeas]);
 
-  /* SSE toast integration */
   useEffect(() => {
     if (view !== "board") return;
     const es = new EventSource("/api/events");
@@ -125,12 +148,30 @@ export default function Dashboard() {
     function handler(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setSearchOpen(true); return; }
       if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setView((v) => v === "board" ? "overview" : "board"); return; }
-      if (e.key === "Escape") { if (selectedTask) setSelectedTask(null); return; }
+      if (e.key === "Escape") { if (creatorOpen) { setCreatorOpen(false); return; } if (selectedTask) { setSelectedTask(null); return; } }
       if (e.key === "?" && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") { setSearchOpen(true); return; }
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedTask]);
+  }, [selectedTask, creatorOpen]);
+
+  /* persist selected project boards */
+  useEffect(() => {
+    // Load persisted board preference on mount — run once
+    if (typeof window === "undefined") return;
+    try {
+      const saved = window.localStorage.getItem(SELECTED_BOARDS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Record<string, string>;
+        if (!board && parsed.workspace) {
+          const u = new URL(window.location.href);
+          u.searchParams.set("board", parsed.workspace);
+          window.history.replaceState({}, "", u.toString());
+        }
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function submitIdea(elm: HTMLFormElement, mode: "draft" | "analysis") {
     setSubmittingIdea(true); setIdeaMessage("");
@@ -151,6 +192,7 @@ export default function Dashboard() {
     const u = new URL(window.location.href);
     u.searchParams.set("board", slug);
     window.history.replaceState({}, "", u.toString());
+    try { const saved = JSON.parse(window.localStorage.getItem(SELECTED_BOARDS_KEY) || "{}") as Record<string, string>; saved.workspace = slug; window.localStorage.setItem(SELECTED_BOARDS_KEY, JSON.stringify(saved)); } catch {}
     setView("board");
     setLoading(true); void load(slug);
   }, [load]);
@@ -195,6 +237,80 @@ export default function Dashboard() {
     finally { setDecisionBusy(false); }
   }
 
+  // ── DnD: move task via API ──
+  async function moveTask(taskId: string, fromStatus: string, toStatus: string) {
+    if (!data) return;
+    const task = data.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const bn = data.boards.find((b) => b.slug === board)?.name || board;
+    if (!confirm(`Przenieść ${task.id} (${task.title}) z ${statusLabel[fromStatus] || fromStatus} do ${statusLabel[toStatus] || toStatus} na boardzie ${bn}?`)) return;
+    try {
+      const r = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ board, taskId: task.id, targetStatus: toStatus }),
+      });
+      const j = await r.json() as { id?: string; error?: string };
+      if (!r.ok) throw new Error(j.error || "Błąd");
+      addToast(`Przenoszenie ${task.id} ${fromStatus}→${toStatus} — broker przetwarza…`, "info");
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await load(board);
+    } catch (e) { addToast(e instanceof Error ? e.message : "Błąd przenoszenia", "warning"); }
+  }
+
+  // ── Task Creator: submit ──
+  async function submitNewTask(ev: React.FormEvent<HTMLFormElement>) {
+    ev.preventDefault();
+    if (!creatorFormRef.current) return;
+    setCreatorBusy(true); setCreatorError("");
+    const fd = new FormData(creatorFormRef.current);
+    const targetBoard = fd.get("board") as string;
+    const title = fd.get("title") as string;
+    const body = fd.get("description") as string;
+    const priority = Number(fd.get("priority"));
+    try {
+      const r = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ board: targetBoard, title, body, priority }),
+      });
+      const j = await r.json() as { id?: string; error?: string };
+      if (!r.ok) throw new Error(j.error || "Błąd");
+      setCreatorOpen(false);
+      creatorFormRef.current.reset();
+      addToast(`Zadanie ${title.slice(0, 40)} utworzone — broker przetwarza…`, "success");
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await load(board);
+      void loadIdeas();
+    } catch (e) { setCreatorError(e instanceof Error ? e.message : "Błąd"); }
+    finally { setCreatorBusy(false); }
+  }
+
+  // ── DnD handlers ──
+  function onDragStart(taskId: string, fromStatus: string) {
+    setDragTaskId(taskId);
+    setDragOrigin(fromStatus);
+    setDropTarget(null);
+  }
+
+  function onDragEnd() {
+    if (dragTaskId && dragOrigin && dropTarget && dropTarget !== dragOrigin) {
+      void moveTask(dragTaskId, dragOrigin, dropTarget);
+    }
+    setDragTaskId(null);
+    setDragOrigin(null);
+    setDropTarget(null);
+  }
+
+  function onDragOver(targetStatus: string) {
+    setDropTarget(targetStatus);
+  }
+
+  function canDrop(fromStatus: string | null, toStatus: string) {
+    if (!fromStatus) return true;
+    return (ALLOWED_DROP_TARGETS[fromStatus] || []).includes(toStatus);
+  }
+
   function toggleCol(status: string) { setCollapsed((prev) => { const n = new Set(prev); if (n.has(status)) n.delete(status); else n.add(status); return n; }); }
 
   const tasksPerAgent = useMemo(() => {
@@ -224,10 +340,35 @@ export default function Dashboard() {
   return <div className="app-shell">
     <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} data={data} board={board} onSelectBoard={selectBoard} onSelectTask={setSelectedTask} />
 
-    {/* Toasts */}
     <div className="toast-container" aria-live="polite">
       {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}>{toast.text}</div>)}
     </div>
+
+    {/* ── Task Creator modal ── */}
+    {creatorOpen && <div className="creator-backdrop" onMouseDown={(ev) => { if (ev.currentTarget === ev.target) setCreatorOpen(false); }}>
+      <div className="creator-modal">
+        <h2>Nowe zadanie</h2>
+        <form ref={creatorFormRef} onSubmit={submitNewTask}>
+          <label><span>Projekt / board</span>
+            <select name="board" required defaultValue={creatorBoard || board} onChange={(ev) => setCreatorBoard(ev.target.value)}>
+              {data.boards.filter((b) => !["default", "portfolio"].includes(b.slug)).map((b) => <option value={b.slug} key={b.slug}>{b.name}</option>)}
+            </select>
+          </label>
+          <label><span>Tytuł</span><input name="title" minLength={3} maxLength={160} required placeholder="Np. dodaj endpoint REST dla raportów" /></label>
+          <label><span>Opis</span><textarea name="description" minLength={10} maxLength={6000} required rows={5} placeholder="Co należy zrobić? Jakie są kryteria sukcesu?" /></label>
+          <label><span>Priorytet</span>
+            <select name="priority" defaultValue="2">
+              <option value="1">P1 — niski</option><option value="2">P2 — normalny</option><option value="3">P3 — wysoki</option><option value="4">P4 — krytyczny</option>
+            </select>
+          </label>
+          {creatorError && <p className="creator-error">{creatorError}</p>}
+          <div className="creator-actions">
+            <button type="button" onClick={() => setCreatorOpen(false)}>Anuluj</button>
+            <button className="primary" type="submit" disabled={creatorBusy}>{creatorBusy ? "Tworzenie…" : "Utwórz zadanie"}</button>
+          </div>
+        </form>
+      </div>
+    </div>}
 
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">A</span><div><strong>Agent Ops</strong><small>Mission Control</small></div></div>
@@ -261,6 +402,7 @@ export default function Dashboard() {
         <button className="action-btn primary" onClick={() => { setView("board"); setTimeout(() => scrollTo("board"), 50); }}>Przejdź do Kanbanu</button>
         <button className="action-btn" onClick={() => { setView("board"); setTimeout(() => scrollTo("inbox"), 50); }}>CEO Inbox</button>
         <button className="action-btn" onClick={() => setSearchOpen(true)}>Szukaj <kbd>⌘K</kbd></button>
+        <button className="action-btn" onClick={() => { setCreatorBoard(board); setCreatorOpen(true); }}>＋ Nowe zadanie</button>
       </section>
       <section className="overview-grid">
         <div>
@@ -328,33 +470,63 @@ export default function Dashboard() {
 
       <div className="workspace-grid">
         <section className="board-panel">
-          <div className="section-head"><div><p className="eyebrow">{board.toUpperCase()}</p><h2>Delivery board</h2></div><span className="secure-write">2FA protected</span></div>
-          {isMobile && <p className="mobile-hint">Dotknij nagłówka kolumny aby ją zwinąć.</p>}
-          <div className="kanban-scroll"><div className="kanban-board">{STATUSES.map((status) => {
-            const tasks = visibleTasks.filter((t) => t.status === status);
-            const isCollapsed = collapsed.has(status);
-            const isEmpty = tasks.length === 0;
-            return <section className={`kanban-column ${status} ${isCollapsed ? "collapsed" : ""} ${isEmpty && !isCollapsed ? "empty" : ""}`} key={status} aria-label={statusLabel[status]}>
-              <header onClick={() => toggleCol(status)} title={`${statusHelp[status] || ""} — kliknij aby ${isCollapsed ? "rozwinąć" : "zwinąć"}`}>
-                <span className="status-dot" /><strong>{statusLabel[status]}</strong><b>{tasks.length}</b>
-              </header>
-              {!isCollapsed && <div className="task-stack">
-                {tasks.map((task) => <div className="task-card-wrapper" key={task.id}>
-                  <button className="task-card" onClick={() => setSelectedTask(task)}>
-                    <div className="task-meta"><code>{task.id}</code><span>P{task.priority}</span></div>
-                    <h3>{task.title}</h3>
-                    <p>{task.body || "Brak opisu"}</p>
-                    <footer><span className="assignee"><i>{roleIcon[task.assignee || ""] || "◇"}</i>{task.assignee || "unassigned"}</span><time>{relativeTime(task.startedAt || task.createdAt)}</time></footer>
-                  </button>
-                  <div className="task-quick-actions">
-                    {["blocked", "scheduled"].includes(task.status) && <button className="quick-approve" title="Akceptuj i odblokuj" onClick={(e) => { e.stopPropagation(); setSelectedTask(task); setTimeout(() => { setDecisionComment(""); void submitDecision("approve"); }, 100); }}>✓</button>}
-                    <button className="quick-view" title="Pokaż szczegóły" onClick={(e) => { e.stopPropagation(); setSelectedTask(task); }}>…</button>
-                  </div>
-                </div>)}
-                {isEmpty && <div className="empty-column">{isMobile ? "—" : "Brak zadań"}</div>}
-              </div>}
-            </section>;
-          })}</div></div>
+          <div className="section-head">
+            <div><p className="eyebrow">{board.toUpperCase()}</p><h2>Delivery board</h2></div>
+            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <button className="new-task-btn" onClick={() => { setCreatorBoard(board); setCreatorOpen(true); }}>＋ Nowe zadanie</button>
+              <span className="secure-write">2FA protected</span>
+            </div>
+          </div>
+          {isMobile && <p className="mobile-hint">Dotknij nagłówka kolumny aby ją zwinąć. Przeciągaj karty między kolumnami.</p>}
+          <div className="kanban-scroll">
+            <div className="kanban-board">
+              {STATUSES.map((status) => {
+                const tasks = visibleTasks.filter((t) => t.status === status);
+                const isCollapsed = collapsed.has(status);
+                const isEmpty = tasks.length === 0;
+                const isValidDrop = canDrop(dragOrigin, status);
+                const isOver = dropTarget === status && dragOrigin !== null && dragOrigin !== status;
+
+                return <section
+                  className={`kanban-column ${status} droppable-column ${isCollapsed ? "collapsed" : ""} ${isEmpty && !isCollapsed ? "empty" : ""} ${isOver && isValidDrop ? "drag-over" : ""} ${isOver && !isValidDrop ? "drag-invalid" : ""}`}
+                  key={status}
+                  aria-label={statusLabel[status]}
+                  onDragOver={(ev) => { ev.preventDefault(); onDragOver(status); }}
+                  onDragLeave={() => setDropTarget((prev) => prev === status ? null : prev)}
+                  onDrop={(ev) => { ev.preventDefault(); if (dragTaskId && dragOrigin && dragOrigin !== status && isValidDrop) { void moveTask(dragTaskId, dragOrigin, status); } onDragEnd(); }}
+                >
+                  <div className="drag-indicator" aria-hidden="true" />
+                  <header onClick={() => toggleCol(status)} title={`${statusHelp[status] || ""} — kliknij aby ${isCollapsed ? "rozwinąć" : "zwinąć"}`}>
+                    <span className="status-dot" /><strong>{statusLabel[status]}</strong><b>{tasks.length}</b>
+                  </header>
+                  {!isCollapsed && <div className="task-stack">
+                    {tasks.map((task) => {
+                      const isDragging = dragTaskId === task.id;
+                      return <div className="task-card-wrapper" key={task.id}>
+                        <button
+                          className={`task-card draggable-task ${isDragging ? "dragging" : ""}`}
+                          draggable
+                          onClick={() => setSelectedTask(task)}
+                          onDragStart={(ev) => { ev.dataTransfer.setData("text/plain", task.id); ev.dataTransfer.effectAllowed = "move"; onDragStart(task.id, task.status); }}
+                          onDragEnd={() => onDragEnd()}
+                        >
+                          <div className="task-meta"><code>{task.id}</code><span>P{task.priority}</span></div>
+                          <h3>{task.title}</h3>
+                          <p>{task.body || "Brak opisu"}</p>
+                          <footer><span className="assignee"><i>{roleIcon[task.assignee || ""] || "◇"}</i>{task.assignee || "unassigned"}</span><time>{relativeTime(task.startedAt || task.createdAt)}</time></footer>
+                        </button>
+                        <div className="task-quick-actions">
+                          {["blocked", "scheduled"].includes(task.status) && <button className="quick-approve" title="Akceptuj i odblokuj" onClick={(e) => { e.stopPropagation(); setSelectedTask(task); setTimeout(() => { setDecisionComment(""); void submitDecision("approve"); }, 100); }}>✓</button>}
+                          <button className="quick-view" title="Pokaż szczegóły" onClick={(e) => { e.stopPropagation(); setSelectedTask(task); }}>…</button>
+                        </div>
+                      </div>;
+                    })}
+                    {isEmpty && <div className="empty-column">{isMobile ? "—" : "Brak zadań — upuść tutaj kartę"}</div>}
+                  </div>}
+                </section>;
+              })}
+            </div>
+          </div>
         </section>
 
         <aside className="activity-panel" id="activity"><div className="section-head"><div><p className="eyebrow">EVENT STREAM</p><h2>Live activity</h2></div><span className="pulse" /></div><div className="activity-list" aria-live="polite">
@@ -370,7 +542,6 @@ export default function Dashboard() {
       <h2 id="task-title">{selectedTask.title}</h2>
       <p className="task-body">{selectedTask.body || "Brak opisu."}</p>
 
-      {/* #4: CEO Decision pinned at top */}
       <section className="decision-box"><h3>Decyzja CEO</h3>
         <p>Akcja dotyczy tylko tej karty. PM decyduje, który agent podejmie dalszą pracę.</p>
         <textarea value={decisionComment} onChange={(ev) => setDecisionComment(ev.target.value)} maxLength={2000} rows={3} placeholder={selectedTask.status === "blocked" ? "Komentarz (opcjonalny)" : "Powód"} />
