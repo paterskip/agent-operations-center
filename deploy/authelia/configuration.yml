@@ -42,7 +42,7 @@ access_control:
   default_policy: deny
   rules:
     - domain: 'agents.paterski.com'
-      policy: one_factor
+      policy: two_factor
       subject:
         - 'group:ceo'
 
