@@ -144,7 +144,9 @@ export function getSnapshot(requestedBoard?: string | null): DashboardSnapshot {
 
 export function activityCursor(): string {
   return discoverBoards().map((board) => {
-    const db = openReadOnly(board.dbPath);
-    try { const row = db.prepare("SELECT MAX(id) id FROM task_events").get() as AnyRow | undefined; return `${board.slug}:${row?.id || 0}`; } finally { db.close(); }
+    try {
+      const db = openReadOnly(board.dbPath);
+      try { const row = db.prepare("SELECT MAX(id) id FROM task_events").get() as AnyRow | undefined; return `${board.slug}:${row?.id || 0}`; } finally { db.close(); }
+    } catch { return `${board.slug}:0`; }
   }).join("|");
 }
