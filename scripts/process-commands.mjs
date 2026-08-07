@@ -6,26 +6,53 @@ import path from "node:path";
 
 const dbPath = process.env.AOC_STATE_DB || "/var/lib/agent-operations-center/aoc.db";
 const hermes = process.env.HERMES_BIN || "/usr/local/bin/hermes";
+
+// ── Ensure state tables exist (idempotent) ──
+{
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ideas (
+      id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, project TEXT NOT NULL,
+      priority INTEGER NOT NULL, mode TEXT NOT NULL, status TEXT NOT NULL,
+      hermes_task_id TEXT, last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS commands (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, idea_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+      FOREIGN KEY(idea_id) REFERENCES ideas(id)
+    );
+    CREATE TABLE IF NOT EXISTS auth_failures (ip TEXT NOT NULL, created_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS used_recovery_codes (code_hash TEXT PRIMARY KEY, used_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL,
+      target TEXT, detail TEXT, ip TEXT, created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS task_decisions (
+      id TEXT PRIMARY KEY, board TEXT NOT NULL, task_id TEXT NOT NULL, action TEXT NOT NULL,
+      from_status TEXT NOT NULL, to_status TEXT, comment TEXT NOT NULL, status TEXT NOT NULL,
+      result_status TEXT, last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_task_decisions_pending
+      ON task_decisions(board, task_id) WHERE status IN ('queued','running');
+    CREATE TABLE IF NOT EXISTS task_moves (
+      id TEXT PRIMARY KEY, board TEXT NOT NULL, task_id TEXT NOT NULL, action TEXT NOT NULL,
+      from_status TEXT, to_status TEXT, title TEXT, body TEXT,
+      assignee TEXT, priority INTEGER, comment TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL, result_status TEXT, last_error TEXT,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_task_moves_pending
+      ON task_moves(board, task_id) WHERE status IN ('queued','running');
+  `);
+  db.close();
+}
+
 const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
-db.exec(`
-  CREATE TABLE IF NOT EXISTS task_decisions (
-    id TEXT PRIMARY KEY, board TEXT NOT NULL, task_id TEXT NOT NULL, action TEXT NOT NULL,
-    from_status TEXT NOT NULL, to_status TEXT, comment TEXT NOT NULL, status TEXT NOT NULL,
-    result_status TEXT, last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_task_decisions_pending
-    ON task_decisions(board, task_id) WHERE status IN ('queued','running');
-  CREATE TABLE IF NOT EXISTS task_moves (
-    id TEXT PRIMARY KEY, board TEXT NOT NULL, task_id TEXT NOT NULL, action TEXT NOT NULL,
-    from_status TEXT, to_status TEXT, title TEXT, body TEXT,
-    assignee TEXT, priority INTEGER, comment TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL, result_status TEXT, last_error TEXT,
-    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-  );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_task_moves_pending
-    ON task_moves(board, task_id) WHERE status IN ('queued','running');
-`);
 
 function now() { return Math.floor(Date.now() / 1000); }
 
@@ -127,7 +154,6 @@ function processMove() {
   db.prepare("UPDATE task_moves SET status='running', updated_at=? WHERE id=? AND status='queued'").run(ts, move.id);
   try {
     if (move.action === "create") {
-      // Create new task via Hermes CLI
       const args = ["create", move.title, "--body", move.body || "Created from AOC panel",
         "--priority", String(move.priority || 2), "--json"];
       const output = runHermes(move.board, args);
@@ -140,21 +166,16 @@ function processMove() {
           .run(`${move.board}/${createdId}`, `move.id=${move.id}`, ts);
       })();
     } else {
-      // Move task between statuses
       const task = taskState(move.board, move.taskId);
       if (task.status !== move.fromStatus) throw new Error(`Task status changed from ${move.fromStatus} to ${task.status}`);
 
       const transition = `${move.fromStatus}\u2192${move.toStatus}`;
 
-      // Map transitions to Hermes CLI commands
       if (move.fromStatus === "triage" && move.toStatus === "todo") {
-        // No direct Hermes command; triage→todo is implicit. Do nothing.
         runHermes(move.board, ["comment", move.taskId, `CEO moved: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
       } else if (move.fromStatus === "todo" && move.toStatus === "scheduled") {
         runHermes(move.board, ["schedule", move.taskId, "CEO scheduled via Kanban panel"]);
       } else if (move.fromStatus === "scheduled" && move.toStatus === "todo") {
-        // Deschedule: move back to todo. No direct Hermes command for this.
-        // Use unblock as a workaround if possible, otherwise just comment.
         runHermes(move.board, ["comment", move.taskId, `CEO descheduled: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
       } else if (move.fromStatus === "scheduled" && move.toStatus === "ready") {
         runHermes(move.board, ["promote", move.taskId, "CEO promoted via Kanban panel"]);
@@ -194,8 +215,17 @@ function processMove() {
   return true;
 }
 
-// --- Backup Kanban before broker cycle ---
+// ── Backup: every 5 minutes (was every cycle/5s), keep 24 copies per board ──
+const BACKUP_MS = 5 * 60 * 1000; // 5 minutes
+const BACKUP_KEEP = 24; // keep last 24 copies (~2 hours)
+
 function backupKanban() {
+  const stampFile = "/tmp/aoc-last-backup";
+  const nowMs = Date.now();
+  try {
+    const lastMs = Number(fs.readFileSync(stampFile, "utf8").trim());
+    if (!Number.isNaN(lastMs) && nowMs - lastMs < BACKUP_MS) return;
+  } catch {}
   const kanbanRoot = "/root/.hermes/kanban";
   const boardsDir = path.join(kanbanRoot, "boards");
   const backupDir = path.join(kanbanRoot, "backups");
@@ -211,8 +241,34 @@ function backupKanban() {
   for (const slug of fs.readdirSync(boardsDir)) {
     if (slug.startsWith("_") || slug.includes("..")) continue;
     const backups = fs.readdirSync(backupDir).filter((f) => f.startsWith(`${slug}-`) && f.endsWith(".db")).sort().reverse();
-    for (const old of backups.slice(10)) fs.unlinkSync(path.join(backupDir, old));
+    for (const old of backups.slice(BACKUP_KEEP)) fs.unlinkSync(path.join(backupDir, old));
   }
+  fs.writeFileSync(stampFile, String(nowMs));
 }
 
-try { backupKanban(); while (runOne() || processDecision() || processMove()) {} } finally { db.close(); }
+// ── WAL checkpoint: flush WAL to main DB after processing ──
+function checkpointAll() {
+  try {
+    db.pragma("wal_checkpoint(TRUNCATE)");
+    // Also checkpoint Hermes state DBs
+    for (const statePath of [
+      "/root/.hermes/state.db",
+      "/root/.hermes/profiles/pm/state.db",
+      "/root/.hermes/profiles/reviewer/state.db",
+      "/root/.hermes/profiles/coder/state.db",
+      "/root/.hermes/profiles/coder-parallel/state.db",
+      "/root/.hermes/profiles/designer/state.db",
+      "/root/.hermes/profiles/tester/state.db",
+    ]) {
+      if (fs.existsSync(statePath)) {
+        try {
+          const hdb = new Database(statePath);
+          hdb.pragma("wal_checkpoint(TRUNCATE)");
+          hdb.close();
+        } catch { /* skip */ }
+      }
+    }
+  } catch { /* checkpoint is best-effort */ }
+}
+
+try { backupKanban(); const hadWork = runOne() || processDecision() || processMove(); if (hadWork) checkpointAll(); } finally { db.close(); }
