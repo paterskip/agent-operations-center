@@ -61,6 +61,15 @@ function runOne() {
   if (!command) return false;
   const idea = db.prepare("SELECT * FROM ideas WHERE id=?").get(command.ideaId);
   const ts = now();
+  if (!idea) {
+    // Orphaned command (idea deleted): fail it instead of crashing the broker.
+    db.transaction(() => {
+      db.prepare("UPDATE commands SET status='failed', updated_at=? WHERE id=?").run(ts, command.id);
+      db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','command.orphaned',?,?,NULL,?)")
+        .run(String(command.ideaId), `command.id=${command.id}: idea not found`, ts);
+    })();
+    return true;
+  }
   db.prepare("UPDATE commands SET status='running', attempts=attempts+1, updated_at=? WHERE id=?").run(ts, command.id);
   try {
     const body = [
@@ -156,6 +165,8 @@ function processMove() {
     if (move.action === "create") {
       const args = ["create", move.title, "--body", move.body || "Created from AOC panel",
         "--priority", String(move.priority || 2), "--json"];
+      if (move.assignee) args.push("--assignee", move.assignee);
+      args.push("--created-by", "CEO Web", "--idempotency-key", createHash("sha256").update(`aoc-move:${move.id}`).digest("hex"));
       const output = runHermes(move.board, args);
       const parsed = JSON.parse(output);
       const createdId = parsed.id || parsed.task_id;
@@ -226,7 +237,7 @@ function backupKanban() {
     const lastMs = Number(fs.readFileSync(stampFile, "utf8").trim());
     if (!Number.isNaN(lastMs) && nowMs - lastMs < BACKUP_MS) return;
   } catch {}
-  const kanbanRoot = "/root/.hermes/kanban";
+  const kanbanRoot = process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
   const boardsDir = path.join(kanbanRoot, "boards");
   const backupDir = path.join(kanbanRoot, "backups");
   fs.mkdirSync(backupDir, { recursive: true });
@@ -236,7 +247,13 @@ function backupKanban() {
     const src = path.join(boardsDir, slug, "kanban.db");
     if (!fs.existsSync(src)) continue;
     const dest = path.join(backupDir, `${slug}-${timestamp}.db`);
-    fs.copyFileSync(src, dest);
+    try {
+      // WAL-consistent snapshot: copying the main file alone can miss recent WAL pages.
+      const source = new Database(src, { readonly: true });
+      try { source.backup(dest); } finally { source.close(); }
+    } catch {
+      fs.copyFileSync(src, dest); // fallback: plain copy when the DB is busy
+    }
   }
   for (const slug of fs.readdirSync(boardsDir)) {
     if (slug.startsWith("_") || slug.includes("..")) continue;

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ActivityEvent, DashboardSnapshot, DecisionRecord, IdeaRecord, TaskCard } from "@/lib/types";
 import { STATUSES } from "@/lib/types";
+import { ALLOWED_DROPS } from "@/lib/transitions";
 import SearchModal from "./search-modal";
 
 const roleIcon: Record<string, string> = { pm: "◆", coder: "⌘", "coder-parallel": "⌘", designer: "✦", tester: "✓", reviewer: "◇" };
@@ -18,16 +19,7 @@ const statusHelp: Record<string, string> = {
   done: "Zakończone pomyślnie.",
 };
 
-const ALLOWED_DROP_TARGETS: Record<string, string[]> = {
-  triage: ["triage", "todo"],
-  todo: ["triage", "todo", "scheduled"],
-  scheduled: ["todo", "scheduled", "ready"],
-  ready: ["todo", "scheduled", "ready", "running"],
-  running: ["ready", "running", "blocked", "review"],
-  blocked: ["blocked"], // CEO unblock via decision, not DnD
-  review: ["running", "review", "done"],
-  done: ["review", "done", "todo"],
-};
+const ALLOWED_DROP_TARGETS = ALLOWED_DROPS;
 
 function relativeTime(timestamp: number | null) {
   if (!timestamp) return "brak aktywności";
@@ -55,6 +47,9 @@ export default function Dashboard() {
   const [selectedTask, setSelectedTask] = useState<TaskCard | null>(null);
   const [agentFilter, setAgentFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const drawerLastFocusRef = useRef<HTMLElement | null>(null);
   const [error, setError] = useState("");
   const [live, setLive] = useState(false);
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
@@ -107,7 +102,7 @@ export default function Dashboard() {
       const msg = e instanceof DOMException && e.name === "AbortError" ? "Przekroczono czas połączenia — spróbuj ponownie." : e instanceof Error ? e.message : "Nie udało się pobrać danych";
       setError(msg);
     }
-    finally { clearTimeout(timer); setLoading(false); }
+    finally { clearTimeout(timer); setLoading(false); setRefreshing(false); }
   }, []);
 
   const loadIdeas = useCallback(async () => {
@@ -131,15 +126,15 @@ export default function Dashboard() {
     return () => { setLive(false); es.close(); };
   }, [view, board, load, loadIdeas]);
 
+  /* Toast for new activity — derived from the data diff, no second SSE connection */
+  const lastToastIdRef = useRef<number | null>(null);
   useEffect(() => {
-    if (view !== "board") return;
-    const es = new EventSource("/api/events");
-    es.addEventListener("change", () => {
-      if (!data) return;
-      const latest = data.activity[0];
-      if (latest) addToast(`${latest.assignee || "System"} — ${eventSummary(latest)}: ${latest.taskTitle}`, latest.kind === "completed" ? "success" : latest.kind === "blocked" ? "warning" : "info");
-    });
-    return () => es.close();
+    const latest = data?.activity?.[0];
+    if (!latest) return;
+    if (lastToastIdRef.current !== null && lastToastIdRef.current !== latest.id) {
+      addToast(`${latest.assignee || "System"} — ${eventSummary(latest)}: ${latest.taskTitle}`, latest.kind === "completed" ? "success" : latest.kind === "blocked" ? "warning" : "info");
+    }
+    lastToastIdRef.current = latest.id;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.activity?.[0]?.id]);
 
@@ -154,6 +149,23 @@ export default function Dashboard() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [selectedTask, creatorOpen]);
+
+  /* Move focus into the task drawer on open, restore it on close (dialog a11y) */
+  useEffect(() => {
+    if (selectedTask) {
+      drawerLastFocusRef.current = document.activeElement as HTMLElement | null;
+      const t = setTimeout(() => drawerRef.current?.focus(), 30);
+      return () => clearTimeout(t);
+    }
+    drawerLastFocusRef.current?.focus?.();
+  }, [selectedTask]);
+
+  /* Lock page scroll while a dialog is open */
+  useEffect(() => {
+    const locked = !!(selectedTask || searchOpen || creatorOpen);
+    document.body.style.overflow = locked ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [selectedTask, searchOpen, creatorOpen]);
 
   /* persist selected project boards */
   useEffect(() => {
@@ -194,7 +206,7 @@ export default function Dashboard() {
     window.history.replaceState({}, "", u.toString());
     try { const saved = JSON.parse(window.localStorage.getItem(SELECTED_BOARDS_KEY) || "{}") as Record<string, string>; saved.workspace = slug; window.localStorage.setItem(SELECTED_BOARDS_KEY, JSON.stringify(saved)); } catch {}
     setView("board");
-    setLoading(true); void load(slug);
+    setRefreshing(true); void load(slug);
   }, [load]);
 
   const loadDecisions = useCallback(async (slug: string, taskId: string) => {
@@ -330,7 +342,7 @@ export default function Dashboard() {
   const visibleTasks = useMemo(() => data?.tasks.filter((t) => agentFilter === "all" || t.assignee === agentFilter) || [], [data, agentFilter]);
   const active = data?.agents.filter((a) => a.status === "working").length || 0;
   const blockedCount = data?.boards.reduce((s, b) => s + (b.counts.blocked || 0), 0) || 0;
-  const pendingDecisions = data?.tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).length || 0;
+  const pendingDecisions = data?.boards.reduce((s, b) => s + (b.counts.blocked || 0) + (b.counts.scheduled || 0), 0) || 0;
 
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
@@ -370,7 +382,7 @@ export default function Dashboard() {
       </div>
     </div>}
 
-    <aside className="sidebar">
+    <aside className="sidebar" aria-label="Panel boczny">
       <div className="brand"><span className="brand-mark">A</span><div><strong>Agent Ops</strong><small>Mission Control</small></div></div>
       <nav aria-label="Główna nawigacja">
         <button className={`nav-item ${view === "overview" ? "active" : ""}`} onClick={() => setView("overview")}><span>◎</span> Overview <kbd>⌃B</kbd></button>
@@ -407,7 +419,7 @@ export default function Dashboard() {
       <section className="overview-grid">
         <div>
           <div className="section-head"><div><p className="eyebrow">DECYZJE</p><h2>Wymagające uwagi</h2></div></div>
-          {data.tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).slice(0, 6).map((t) => <button key={t.id} className="task-card compact" onClick={() => { setView("board"); setTimeout(() => { const slug = data.boards.find((b) => b.slug && data.tasks.filter((a) => a.boardSlug === b.slug).includes(t))?.slug || board; selectBoard(slug); setTimeout(() => setSelectedTask(t), 100); }, 50); }}>
+          {data.tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).slice(0, 6).map((t) => <button key={t.id} className="task-card compact" onClick={() => { setView("board"); setTimeout(() => { selectBoard(t.boardSlug); setTimeout(() => setSelectedTask(t), 100); }, 50); }}>
             <div className="task-meta"><code>{t.id}</code><span className={`status-badge ${t.status}`}>{t.status}</span></div><h3>{t.title}</h3><footer>{t.boardSlug} · {t.assignee || "unassigned"}</footer>
           </button>)}
           {data.tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).length === 0 && <p className="empty-state">Wszystkie zadania są odblokowane. Świetnie!</p>}
@@ -425,7 +437,7 @@ export default function Dashboard() {
     {view === "board" && <main className="main-content" id="board">
       <header className="topbar">
         <div><p className="eyebrow">OPERATIONS / LIVE</p><h1>Command Center</h1></div>
-        <div className="top-actions"><span className={`live-pill ${live ? "" : "offline"}`}><i /> {live ? "LIVE" : "RECONNECTING"}</span><span className="updated">Aktualizacja {new Date(data.generatedAt).toLocaleTimeString("pl-PL")}</span></div>
+        <div className="top-actions"><span className={`live-pill ${live ? "" : "offline"}`}><i /> {live ? "LIVE" : "RECONNECTING"}</span>{refreshing && <span className="refreshing" role="status">Odświeżam…</span>}<span className="updated">Aktualizacja {new Date(data.generatedAt).toLocaleTimeString("pl-PL")}</span></div>
       </header>
 
       <section className="metric-grid" aria-label="Podsumowanie">
@@ -442,7 +454,7 @@ export default function Dashboard() {
       </section>
 
       <section className="inbox-panel" id="inbox">
-        <div className="section-head"><div><p className="eyebrow">CEO WORKSPACE</p><h2>CEO Inbox</h2></div><span className="secure-write">2FA protected</span></div>
+        <div className="section-head"><div><p className="eyebrow">CEO WORKSPACE</p><h2>CEO Inbox</h2></div><span className="secure-write">Authelia</span></div>
         <div className="inbox-grid">
           <form className="idea-form" onSubmit={(ev) => { ev.preventDefault(); void submitIdea(ev.currentTarget, "analysis"); }}>
             <label><span>Projekt docelowy</span><select name="project" required defaultValue=""><option value="" disabled>Wybierz projekt</option>{data.boards.filter((b) => !["default", "portfolio"].includes(b.slug)).map((b) => <option value={b.slug} key={b.slug}>{b.name}</option>)}</select></label>
@@ -474,10 +486,10 @@ export default function Dashboard() {
             <div><p className="eyebrow">{board.toUpperCase()}</p><h2>Delivery board</h2></div>
             <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
               <button className="new-task-btn" onClick={() => { setCreatorBoard(board); setCreatorOpen(true); }}>＋ Nowe zadanie</button>
-              <span className="secure-write">2FA protected</span>
+              <span className="secure-write">Authelia</span>
             </div>
           </div>
-          {isMobile && <p className="mobile-hint">Dotknij nagłówka kolumny aby ją zwinąć. Przeciągaj karty między kolumnami.</p>}
+          {isMobile && <p className="mobile-hint">Dotknij nagłówka kolumny, aby ją zwinąć. Dotknij karty, aby zobaczyć szczegóły. Przeciąganie kart działa na desktopie.</p>}
           <div className="kanban-scroll">
             <div className="kanban-board">
               {STATUSES.map((status) => {
@@ -529,7 +541,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <aside className="activity-panel" id="activity"><div className="section-head"><div><p className="eyebrow">EVENT STREAM</p><h2>Live activity</h2></div><span className="pulse" /></div><div className="activity-list" aria-live="polite">
+        <aside className="activity-panel" id="activity" aria-label="Aktywność na żywo"><div className="section-head"><div><p className="eyebrow">EVENT STREAM</p><h2>Live activity</h2></div><span className="pulse" /></div><div className="activity-list" aria-live="polite">
           {data.activity.map((event) => <article key={`${event.board}-${event.id}`}><div className={`activity-icon ${event.kind}`}>{event.kind === "completed" ? "✓" : event.kind === "blocked" ? "!" : "·"}</div><div><p><strong>{event.assignee || "System"}</strong> {eventSummary(event)}</p><button onClick={() => { if (event.board !== board) { selectBoard(event.board); } else { setSelectedTask(data.tasks.find((t) => t.id === event.taskId) || null); } }}>{event.taskTitle}</button><small>{event.board} · {relativeTime(event.createdAt)}</small></div></article>)}
           {!data.activity.length && <div className="empty-activity"><span>⌁</span><p>Zdarzenia pojawią się, gdy zespół rozpocznie pracę.</p></div>}
         </div></aside>
@@ -537,7 +549,7 @@ export default function Dashboard() {
     </main>}
 
     {/* --- DRAWER --- */}
-    {selectedTask && <div className="drawer-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) setSelectedTask(null); }}><aside className="task-drawer" role="dialog" aria-modal="true" aria-labelledby="task-title">
+    {selectedTask && <div className="drawer-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) setSelectedTask(null); }}><aside className="task-drawer" role="dialog" aria-modal="true" aria-labelledby="task-title" ref={drawerRef} tabIndex={-1}>
       <header><div><code>{selectedTask.id}</code><span className={`status-badge ${selectedTask.status}`} title={statusHelp[selectedTask.status] || ""}>{selectedTask.status}</span></div><button aria-label="Zamknij" onClick={() => setSelectedTask(null)}>×</button></header>
       <h2 id="task-title">{selectedTask.title}</h2>
       <p className="task-body">{selectedTask.body || "Brak opisu."}</p>

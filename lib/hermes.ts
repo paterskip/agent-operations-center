@@ -61,7 +61,7 @@ function readTasks(board: BoardRecord): TaskCard[] {
     return rows.map((r) => {
       const id = String(r.id);
       return {
-        id, title: String(r.title), body: String(r.body || ""), assignee: r.assignee == null ? null : String(r.assignee), status: String(r.status), priority: Number(r.priority || 0),
+        id, title: String(r.title), body: unwrapBody(String(r.body || "")), assignee: r.assignee == null ? null : String(r.assignee), status: String(r.status), priority: Number(r.priority || 0),
         boardSlug: board.slug,
         createdAt: Number(r.created_at), startedAt: r.started_at == null ? null : Number(r.started_at), completedAt: r.completed_at == null ? null : Number(r.completed_at),
         branchName: r.branch_name == null ? null : String(r.branch_name), result: r.result == null ? null : String(r.result),
@@ -73,6 +73,29 @@ function readTasks(board: BoardRecord): TaskCard[] {
       };
     });
   } finally { db.close(); }
+}
+
+function unwrapBody(body: string): string {
+  if (!body || !body.trimStart().startsWith("{")) return body;
+  try {
+    const parsed = JSON.parse(body) as { body?: unknown };
+    if (typeof parsed.body === "string") return parsed.body;
+  } catch {
+    // Truncated JSON envelope (seen in real boards): extract the "body" string best-effort.
+    const start = body.indexOf('"body":"');
+    if (start !== -1) {
+      const slice = body.slice(start + 8);
+      let out = "";
+      for (let i = 0; i < slice.length; i++) {
+        const ch = slice[i];
+        if (ch === "\\") { const nxt = slice[i + 1]; out += nxt === "n" ? "\n" : nxt === "t" ? "\t" : nxt === "r" ? "\r" : nxt === '"' ? '"' : nxt === "\\" ? "\\" : ch + (nxt ?? ""); i++; continue; }
+        if (ch === '"') break;
+        out += ch;
+      }
+      if (out.trim()) return out;
+    }
+  }
+  return body;
 }
 
 function profileDescriptions(): Map<string, string> {

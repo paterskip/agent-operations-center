@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  allowedDevOrigins: ["127.0.0.1", "localhost", "194.164.203.60"],
   async headers() {
     return [{
       source: "/(.*)",
