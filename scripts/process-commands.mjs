@@ -239,6 +239,17 @@ function backupKanban() {
   const backupDir = path.join(kanbanRoot, "backups");
   fs.mkdirSync(backupDir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  // Default board (kanban.db at the kanban root) — checkpoint so the docker
+  // reader's ro mount of the main file stays fresh (the -wal/-shm are NOT
+  // mounted; SQLite deletes them when the last connection closes).
+  const defaultDb = path.join(kanbanRoot, "..", "kanban.db");
+  if (fs.existsSync(defaultDb)) {
+    try {
+      const c = new Database(defaultDb);
+      try { c.pragma("wal_checkpoint(TRUNCATE)"); } finally { c.close(); }
+    } catch { /* busy */ }
+    fs.copyFileSync(defaultDb, path.join(backupDir, `default-${timestamp}.db`));
+  }
   for (const slug of fs.readdirSync(boardsDir)) {
     if (slug.startsWith("_") || slug.includes("..")) continue;
     const src = path.join(boardsDir, slug, "kanban.db");
@@ -258,6 +269,8 @@ function backupKanban() {
     const backups = fs.readdirSync(backupDir).filter((f) => f.startsWith(`${slug}-`) && f.endsWith(".db")).sort().reverse();
     for (const old of backups.slice(BACKUP_KEEP)) fs.unlinkSync(path.join(backupDir, old));
   }
+  const defBackups = fs.readdirSync(backupDir).filter((f) => f.startsWith("default-") && f.endsWith(".db")).sort().reverse();
+  for (const old of defBackups.slice(BACKUP_KEEP)) fs.unlinkSync(path.join(backupDir, old));
   fs.writeFileSync(stampFile, String(nowMs));
 }
 
