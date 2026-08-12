@@ -115,7 +115,11 @@ function collectAlerts() {
 const alerts = collectAlerts();
 if (alerts.length) {
   const now = new Date();
-  process.stdout.write(`🚨 AOC Alerts — ${now.toLocaleDateString("pl-PL")} ${now.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}\n`);
-  process.stdout.write(alerts.join("\n") + "\n");
+  const header = `🚨 AOC Alerts — ${now.toLocaleDateString("pl-PL")} ${now.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}\n`;
+  const body = alerts.join("\n") + "\n";
+  // EPIPE-safe: downstream (head, cron pipelines) may close the pipe early.
+  process.stdout.on("error", () => process.exit(0));
+  process.stdout.write(header + body, () => process.exit(0));
+} else {
+  process.exit(0); // empty stdout = silent (no delivery)
 }
-// empty stdout = silent (no delivery)
