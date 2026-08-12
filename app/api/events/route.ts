@@ -1,7 +1,15 @@
-import { activityCursor, getAgentStatuses, getTaskDeltas } from "@/lib/hermes";
+import { activityCursor, activityDelta, getAgentStatuses, getTaskDeltas } from "@/lib/hermes";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+// Kinds that represent real work — they may move cards or add to the feed.
+// Pure `heartbeat` ticks only advance the presence (agents view) via `presence`.
+const WORK_KINDS = new Set([
+  "completed", "blocked", "promoted", "created", "archived", "unblocked",
+  "claimed", "spawned", "specified", "assigned", "dependency_wait",
+  "block_loop_detected", "timed_out", "commented", "reopened",
+]);
 
 export function GET(request: Request) {
   const encoder = new TextEncoder();
@@ -17,12 +25,19 @@ export function GET(request: Request) {
         try {
           const cursor = activityCursor();
           if (cursor !== previousCursor) {
+            const entries = activityDelta(previousCursor);
             previousCursor = cursor;
-            const agents = getAgentStatuses();
-            const tasks = getTaskDeltas();
-            controller.enqueue(encoder.encode(
-              `event: change\ndata: ${JSON.stringify({ cursor, agents, tasks })}\n\n`
-            ));
+            const hasWork = entries.some((e) => WORK_KINDS.has(e.kind));
+            const payload = { cursor, agents: getAgentStatuses() };
+            if (hasWork) {
+              // Real work: send task deltas + new activity so the client can
+              // update the board in place — no full snapshot reload.
+              Object.assign(payload, { tasks: getTaskDeltas(), activity: entries });
+              controller.enqueue(encoder.encode(`event: change\ndata: ${JSON.stringify(payload)}\n\n`));
+            } else {
+              // Heartbeat-only tick: presence update, zero kanban churn.
+              controller.enqueue(encoder.encode(`event: presence\ndata: ${JSON.stringify(payload)}\n\n`));
+            }
           } else {
             controller.enqueue(encoder.encode(`: heartbeat\n\n`));
           }

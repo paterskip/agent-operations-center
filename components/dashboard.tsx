@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ActivityEvent, DashboardSnapshot, DecisionRecord, IdeaRecord, TaskCard } from "@/lib/types";
+import type { ActivityEvent, AgentSummary, DashboardSnapshot, DecisionRecord, IdeaRecord, TaskCard } from "@/lib/types";
+import { applyTaskDeltas, mergeActivity, type ActivityEntry, type TaskDelta } from "@/lib/kanban-delta";
 import { STATUSES } from "@/lib/types";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { ALLOWED_DROPS } from "@/lib/transitions";
@@ -47,6 +48,9 @@ let toastId = 0;
 export default function Dashboard() {
   const [view, setView] = useState<ViewMode>("overview");
   const [data, setData] = useState<DashboardSnapshot | null>(null);
+  const [liveTasks, setLiveTasks] = useState<TaskCard[] | null>(null);
+  const [liveAgents, setLiveAgents] = useState<DashboardSnapshot["agents"] | null>(null);
+  const [liveActivity, setLiveActivity] = useState<DashboardSnapshot["activity"] | null>(null);
   const [board, setBoard] = useState("");
   const [selectedTask, setSelectedTask] = useState<TaskCard | null>(null);
   const [agentFilter, setAgentFilter] = useState("all");
@@ -59,6 +63,17 @@ export default function Dashboard() {
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
   const [ideaMessage, setIdeaMessage] = useState("");
   const [scorecard, setScorecard] = useState<{ slug: string; name: string; done7: number; done30: number; blocked7: number; blocked30: number; rework30: number; running: number; total: number; sessions30: number; tokens30: number; cost30: number | null }[] | null>(null);
+
+  /* Live-derived views: SSE deltas override the snapshot; full load() resyncs. */
+  const tasks = liveTasks ?? data?.tasks ?? [];
+  const agents = liveAgents ?? data?.agents ?? [];
+  const activity = liveActivity ?? data?.activity ?? [];
+  const tasksRef = useRef<TaskCard[]>(tasks);
+  // eslint-disable-next-line react-hooks/refs -- latest-ref: read in event handlers (moveTask/submitDecision), render-time assignment is intentional
+  tasksRef.current = tasks;
+  /* Tick for render-time clocks (SLA badges) — pure render, refreshed each minute */
+  const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
+  useEffect(() => { const t = setInterval(() => setNowSec(Date.now() / 1000), 60_000); return () => clearInterval(t); }, []);
   const [submittingIdea, setSubmittingIdea] = useState(false);
   const [decisions, setDecisions] = useState<DecisionRecord[]>([]);
   const [decisionComment, setDecisionComment] = useState("");
@@ -125,6 +140,7 @@ export default function Dashboard() {
       }
       const snap = await res.json() as DashboardSnapshot;
       setData(snap); setBoard(snap.selectedBoard); setError("");
+      setLiveTasks(snap.tasks); setLiveAgents(null); setLiveActivity(snap.activity);
       setSelectedTask((c) => c ? snap.tasks.find((t) => t.id === c.id) || null : null);
     } catch (e) {
       const msg = e instanceof DOMException && e.name === "AbortError" ? "Przekroczono czas połączenia — spróbuj ponownie." : e instanceof Error ? e.message : "Nie udało się pobrać danych";
@@ -158,32 +174,60 @@ export default function Dashboard() {
     return () => clearTimeout(t);
   }, [load, loadIdeas]);
 
+  /* Live updates: SSE deltas applied in place — NO full snapshot reloads.
+     Full load() only on: mount, board switch, reconnect (dropped flag), explicit refresh. */
+  const dataRef = useRef(data);
+  // eslint-disable-next-line react-hooks/refs -- latest-ref: read in SSE apply closures, render-time assignment is intentional
+  dataRef.current = data;
+  const droppedRef = useRef(false);
   useEffect(() => {
     if (view !== "board") return;
     const es = new EventSource("/api/events");
-    es.addEventListener("ready", () => setLive(true));
-    es.addEventListener("change", () => {
-      // Nie przeładowuj boardu podczas przeciągania — zabezpiecza przed przerwaniem drag
+    const apply = (payload: { tasks?: TaskDelta[]; agents?: AgentSummary[]; activity?: ActivityEntry[] }) => {
+      if (payload.tasks?.length) {
+        setLiveTasks((prev) => applyTaskDeltas(prev ?? dataRef.current?.tasks ?? [], payload.tasks!));
+      }
+      if (payload.agents?.length) setLiveAgents(payload.agents);
+      if (payload.activity?.length) {
+        // Server entries are structurally ActivityEvent minus `payload` — the
+        // feed render only reads kind/taskTitle/board/assignee/createdAt.
+        setLiveActivity((prev) => mergeActivity(prev ?? dataRef.current?.activity ?? [], payload.activity as unknown as ActivityEvent[]));
+      }
+    };
+    es.addEventListener("ready", () => {
+      setLive(true);
+      // Reconnect after a drop: resync with a full snapshot (rare — safe point).
+      if (droppedRef.current) { droppedRef.current = false; void load(board); }
+    });
+    es.addEventListener("change", (ev) => {
+      // Nie ruszaj boardu podczas przeciągania — zabezpiecza przed przerwaniem drag
       if (draggingTaskIdRef.current) return;
-      void load(board);
-      void loadIdeas();
+      try { apply(JSON.parse((ev as MessageEvent).data)); } catch { /* malformed frame */ }
+      setLive(true);
+    });
+    es.addEventListener("presence", (ev) => {
+      try {
+        const p = JSON.parse((ev as MessageEvent).data);
+        if (p?.agents?.length) setLiveAgents(p.agents);
+      } catch { /* malformed frame */ }
+      setLive(true);
     });
     es.addEventListener("source-error", () => setLive(false));
-    es.onerror = () => setLive(false);
+    es.onerror = () => { droppedRef.current = true; setLive(false); };
     return () => { setLive(false); es.close(); };
-  }, [view, board, load, loadIdeas]);
+  }, [view, board, load]);
 
-  /* Toast for new activity — derived from the data diff, no second SSE connection */
+  /* Toast for new activity — derived from the live feed diff (no extra SSE) */
   const lastToastIdRef = useRef<number | null>(null);
   useEffect(() => {
-    const latest = data?.activity?.[0];
+    const latest = activity[0];
     if (!latest) return;
     if (lastToastIdRef.current !== null && lastToastIdRef.current !== latest.id) {
       addToast(`${latest.assignee || "System"} — ${eventSummary(latest)}: ${latest.taskTitle}`, latest.kind === "completed" ? "success" : latest.kind === "blocked" ? "warning" : "info");
     }
     lastToastIdRef.current = latest.id;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.activity?.[0]?.id]);
+  }, [activity]);
 
   /* Keyboard shortcuts */
   useEffect(() => {
@@ -304,7 +348,18 @@ export default function Dashboard() {
         setDecisions(rows);
         const cur = rows.find((d) => d.id === j.id);
         if (cur?.status === "failed") throw new Error(cur.lastError || "Broker odrzucił");
-        if (cur?.status === "done") { setDecisionMessage(`Gotowe: ${cur.fromStatus} → ${cur.resultStatus}.`); setDecisionComment(""); await load(board); addToast(`Decyzja wykonana: ${selectedTask.id} ${cur.fromStatus}→${cur.resultStatus}`, "success"); break; }
+        if (cur?.status === "done") {
+          setDecisionMessage(`Gotowe: ${cur.fromStatus} → ${cur.resultStatus}.`);
+          setDecisionComment("");
+          const landed = cur.resultStatus;
+          if (landed) {
+            // Płynna lokalna aktualizacja karty — bez pełnego reloadu. SSE delta potwierdzi.
+            setLiveTasks((prev) => applyTaskDeltas(prev ?? dataRef.current?.tasks ?? [], [{ id: selectedTask.id, status: landed, assignee: selectedTask.assignee, board: board, lastHeartbeatAt: null }]));
+            setSelectedTask((c) => (c && c.id === selectedTask.id ? { ...c, status: landed } : c));
+          }
+          addToast(`Decyzja wykonana: ${selectedTask.id} ${cur.fromStatus}→${cur.resultStatus}`, "success");
+          break;
+        }
         if (i === 5) { setDecisionMessage("Decyzja w toku — sprawdź historię za chwilę."); addToast("Decyzja nadal przetwarzana przez brokera", "info"); }
       }
     } catch (e) { setDecisionMessage(e instanceof Error ? e.message : "Błąd"); }
@@ -314,7 +369,7 @@ export default function Dashboard() {
   // ── DnD: move task via API ──
   async function moveTask(taskId: string, fromStatus: string, toStatus: string) {
     if (!data) return;
-    const task = data.tasks.find((t) => t.id === taskId);
+    const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     const bn = data.boards.find((b) => b.slug === board)?.name || board;
     if (!confirm(`Przenieść ${task.id} (${task.title}) z ${statusLabel[fromStatus] || fromStatus} do ${statusLabel[toStatus] || toStatus} na boardzie ${bn}?`)) return;
@@ -347,7 +402,9 @@ export default function Dashboard() {
         if (row.status === "done") {
           settled = true;
           const landed = row.resultStatus || toStatus;
-          await load(board);
+          // Płynna lokalna aktualizacja — bez pełnego reloadu. SSE delta potwierdzi.
+          setLiveTasks((prev) => applyTaskDeltas(prev ?? dataRef.current?.tasks ?? [], [{ id: task.id, status: landed, assignee: task.assignee, board: board, lastHeartbeatAt: null }]));
+          setSelectedTask((c) => (c && c.id === task.id ? { ...c, status: landed } : c));
           if (landed !== toStatus) {
             addToast(`${task.id}: Hermes przeniósł dalej — karta jest w ${statusLabel[landed] || landed} (auto-promocja z ${statusLabel[toStatus] || toStatus}).`, "info");
           } else {
@@ -356,8 +413,8 @@ export default function Dashboard() {
           break;
         }
       }
-      if (!settled) { await load(board); addToast("Ruch nadal przetwarzany przez brokera — odśwież za chwilę.", "info"); }
-    } catch (e) { await load(board); addToast(e instanceof Error ? e.message : "Błąd przenoszenia", "warning"); }
+      if (!settled) { addToast("Ruch nadal przetwarzany przez brokera — karta zaktualizuje się sama.", "info"); }
+    } catch (e) { addToast(e instanceof Error ? e.message : "Błąd przenoszenia", "warning"); }
   }
 
   // ── Task Creator: submit ──
@@ -382,7 +439,7 @@ export default function Dashboard() {
       creatorFormRef.current.reset();
       addToast(`Zadanie ${title.slice(0, 40)} utworzone — broker przetwarza…`, "success");
       await new Promise((resolve) => setTimeout(resolve, 1500));
-      await load(board);
+      if (targetBoard === board) await load(board); // nowa karta pojawia się tylko w pełnym snapshotcie
       void loadIdeas();
     } catch (e) { setCreatorError(e instanceof Error ? e.message : "Błąd"); }
     finally { setCreatorBusy(false); }
@@ -407,7 +464,7 @@ export default function Dashboard() {
       setDragOverStatus(overStatus as TaskCard["status"]);
     } else if (overStatus) {
       // over a sortable item — derive its column
-      const task = data?.tasks.find((t) => t.id === overStatus);
+      const task = tasksRef.current.find((t) => t.id === overStatus);
       if (task) setDragOverStatus(task.status);
     }
   }
@@ -420,7 +477,7 @@ export default function Dashboard() {
     if (!over || !data) return;
 
     const taskId = String(active.id);
-    const task = data.tasks.find((t) => t.id === taskId);
+    const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
 
     let toStatus: TaskCard["status"] | null = null;
@@ -428,7 +485,7 @@ export default function Dashboard() {
     if ((STATUSES as readonly string[]).includes(overId)) {
       toStatus = overId as TaskCard["status"];
     } else {
-      const overTask = data.tasks.find((t) => t.id === overId);
+      const overTask = tasks.find((t) => t.id === overId);
       if (overTask) toStatus = overTask.status;
     }
 
@@ -452,7 +509,7 @@ export default function Dashboard() {
   const tasksPerAgent = useMemo(() => {
     if (!data) return new Map<string, { total: number; running: number; blocked: number }>();
     const m = new Map<string, { total: number; running: number; blocked: number }>();
-    for (const t of data.tasks) {
+    for (const t of tasks) {
       if (!t.assignee) continue;
       const e = m.get(t.assignee) || { total: 0, running: 0, blocked: 0 };
       e.total++;
@@ -463,8 +520,8 @@ export default function Dashboard() {
     return m;
   }, [data]);
 
-  const visibleTasks = useMemo(() => data?.tasks.filter((t) => agentFilter === "all" || t.assignee === agentFilter) || [], [data, agentFilter]);
-  const active = data?.agents.filter((a) => a.status === "working").length || 0;
+  const visibleTasks = useMemo(() => tasks.filter((t) => agentFilter === "all" || t.assignee === agentFilter), [tasks, agentFilter]);
+  const active = agents.filter((a) => a.status === "working").length || 0;
   const blockedCount = data?.boards.reduce((s, b) => s + (b.counts.blocked || 0), 0) || 0;
   const pendingDecisions = data?.boards.reduce((s, b) => s + (b.counts.blocked || 0) + (b.counts.scheduled || 0), 0) || 0;
 
@@ -518,11 +575,11 @@ export default function Dashboard() {
       </nav>
       <div className="sidebar-foot">
         <div className="sidebar-activity">
-          {data.activity.slice(0, 3).map((ev) => <div key={`${ev.board}-${ev.id}`} className="sidebar-event" onClick={() => { if (ev.board !== board) selectBoard(ev.board); setTimeout(() => setSelectedTask(data.tasks.find((t) => t.id === ev.taskId) || null), 50); }}>
+          {activity.slice(0, 3).map((ev) => <div key={`${ev.board}-${ev.id}`} className="sidebar-event" onClick={() => { if (ev.board !== board) selectBoard(ev.board); setTimeout(() => setSelectedTask(tasks.find((t) => t.id === ev.taskId) || null), 50); }}>
             <span className={`event-dot ${ev.kind}`} /><small>{ev.assignee || "System"}: {eventSummary(ev)}</small>
           </div>)}
         </div>
-        <div className="sidebar-status"><span className="system-dot" /><div><strong>Hermes online</strong><small>{data.boards.length} boardy · {data.agents.length} agentów</small></div></div>
+        <div className="sidebar-status"><span className="system-dot" /><div><strong>Hermes online</strong><small>{data.boards.length} boardy · {agents.length} agentów</small></div></div>
       </div>
     </aside>
 
@@ -530,7 +587,7 @@ export default function Dashboard() {
     {view === "overview" && <main className="main-content" id="overview">
       <header className="topbar"><div><p className="eyebrow">AGENT OPERATIONS CENTER</p><h1>Overview</h1></div><div className="top-actions"><span className="shortcut-hint"><kbd>⌘K</kbd> search — <kbd>⌘B</kbd> board</span></div></header>
       <section className="metric-grid" aria-label="Kluczowe metryki">
-        <article><span>Aktywni agenci</span><strong>{active}<small> / {data.agents.length}</small></strong><i className="metric-line blue" /></article>
+        <article><span>Aktywni agenci</span><strong>{active}<small> / {agents.length}</small></strong><i className="metric-line blue" /></article>
         <article><span>Wymagają decyzji</span><strong>{pendingDecisions}</strong><i className="metric-line red" /></article>
         <article><span>Zadania w toku</span><strong>{data.boards.reduce((s, b) => s + (b.counts.running || 0), 0)}</strong><i className="metric-line violet" /></article>
         <article><span>Ukończone</span><strong>{data.boards.reduce((s, b) => s + (b.counts.done || 0), 0)}</strong><i className="metric-line green" /></article>
@@ -544,18 +601,18 @@ export default function Dashboard() {
       <section className="overview-grid">
         <div>
           <div className="section-head"><div><p className="eyebrow">DECYZJE</p><h2>Wymagające uwagi</h2></div></div>
-          {data.tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).sort((a, b) => (a.startedAt || a.createdAt) - (b.startedAt || b.createdAt)).slice(0, 6).map((t) => {
-            const ageH = Math.floor((Date.now() / 1000 - (t.startedAt || t.createdAt)) / 3600);
+          {tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).sort((a, b) => (a.startedAt || a.createdAt) - (b.startedAt || b.createdAt)).slice(0, 6).map((t) => {
+            const ageH = Math.floor((nowSec - (t.startedAt || t.createdAt)) / 3600);
             return <button key={t.id} className="task-card compact" onClick={() => { setView("board"); setTimeout(() => { selectBoard(t.boardSlug); setTimeout(() => setSelectedTask(t), 100); }, 50); }}>
             <div className="task-meta"><code>{t.id}</code><span className={`status-badge ${t.status}`}>{t.status}</span><span className={`sla-badge ${ageH >= 48 ? "overdue" : ageH >= 24 ? "warn" : ""}`}>{ageH >= 24 ? `${Math.floor(ageH / 24)}d ${ageH % 24}h` : `${ageH}h`}</span></div><h3>{t.title}</h3><footer>{t.boardSlug} · {t.assignee || "unassigned"}</footer>
           </button>;
           })}
-          {data.tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).length === 0 && <p className="empty-state">Wszystkie zadania są odblokowane. Świetnie!</p>}
+          {tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).length === 0 && <p className="empty-state">Wszystkie zadania są odblokowane. Świetnie!</p>}
         </div>
         <div>
           <div className="section-head"><div><p className="eyebrow">OSTATNIA AKTYWNOŚĆ</p><h2>Live feed</h2></div></div>
-          {data.activity.slice(0, 8).map((ev) => <article key={`${ev.board}-${ev.id}`} className="activity-row">
-            <span className={`activity-dot ${ev.kind}`} /><div><p><strong>{ev.assignee || "System"}</strong> {eventSummary(ev)}</p><button onClick={() => { if (ev.board !== board) selectBoard(ev.board); setTimeout(() => setSelectedTask(data.tasks.find((t) => t.id === ev.taskId) || null), 50); }}>{ev.taskTitle}</button><small>{ev.board} · {relativeTime(ev.createdAt)}</small></div>
+          {activity.slice(0, 8).map((ev) => <article key={`${ev.board}-${ev.id}`} className="activity-row">
+            <span className={`activity-dot ${ev.kind}`} /><div><p><strong>{ev.assignee || "System"}</strong> {eventSummary(ev)}</p><button onClick={() => { if (ev.board !== board) selectBoard(ev.board); setTimeout(() => setSelectedTask(tasks.find((t) => t.id === ev.taskId) || null), 50); }}>{ev.taskTitle}</button><small>{ev.board} · {relativeTime(ev.createdAt)}</small></div>
           </article>)}
         </div>
       </section>
@@ -571,7 +628,7 @@ export default function Dashboard() {
       </header>
 
       <section className="metric-grid" aria-label="Podsumowanie">
-        <article><span>Aktywni agenci</span><strong>{active}<small> / {data.agents.length}</small></strong><i className="metric-line blue" /></article>
+        <article><span>Aktywni agenci</span><strong>{active}<small> / {agents.length}</small></strong><i className="metric-line blue" /></article>
         <article><span>Zadania w toku</span><strong>{data.boards.reduce((s, b) => s + (b.counts.running || 0), 0)}</strong><i className="metric-line violet" /></article>
         <article><span>Wymaga uwagi</span><strong>{blockedCount}</strong><i className="metric-line red" /></article>
         <article><span>Ukończone</span><strong>{data.boards.reduce((s, b) => s + (b.counts.done || 0), 0)}</strong><i className="metric-line green" /></article>
@@ -600,7 +657,7 @@ export default function Dashboard() {
 
       <section className="agent-presence" id="agents">
         <div className="section-head"><div><p className="eyebrow">TEAM STATUS</p><h2>Agent workforce</h2></div><button className={agentFilter === "all" ? "filter active" : "filter"} onClick={() => setAgentFilter("all")}>Wszyscy</button></div>
-        <div className="agent-grid">{data.agents.map((agent) => {
+        <div className="agent-grid">{agents.map((agent) => {
           const wl = tasksPerAgent.get(agent.slug);
           return <button key={agent.slug} onClick={() => setAgentFilter(agentFilter === agent.slug ? "all" : agent.slug)} className={`agent-card ${agent.status} ${agentFilter === agent.slug ? "selected" : ""}`}>
             <div className="agent-avatar">{roleIcon[agent.slug] || "◇"}<span /></div>
@@ -644,7 +701,7 @@ export default function Dashboard() {
                 {STATUSES.map((status) => {
                   const tasks = visibleTasks.filter((t) => t.status === status);
                   const isCollapsed = collapsed.has(status);
-                  const draggingTask = data.tasks.find((t) => t.id === draggingTaskId);
+                  const draggingTask = tasks.find((t) => t.id === draggingTaskId);
                   const isInvalidDrop = Boolean(
                     dragOverStatus === status && draggingTask && !(ALLOWED_DROP_TARGETS[draggingTask.status] || []).includes(status)
                   );
@@ -675,8 +732,8 @@ export default function Dashboard() {
         </section>
 
         <aside className="activity-panel" id="activity" aria-label="Aktywność na żywo"><div className="section-head"><div><p className="eyebrow">EVENT STREAM</p><h2>Live activity</h2></div><span className="pulse" /></div><div className="activity-list" aria-live="polite">
-          {data.activity.map((event) => <article key={`${event.board}-${event.id}`}><div className={`activity-icon ${event.kind}`}>{event.kind === "completed" ? "✓" : event.kind === "blocked" ? "!" : "·"}</div><div><p><strong>{event.assignee || "System"}</strong> {eventSummary(event)}</p><button onClick={() => { if (event.board !== board) { selectBoard(event.board); } else { setSelectedTask(data.tasks.find((t) => t.id === event.taskId) || null); } }}>{event.taskTitle}</button><small>{event.board} · {relativeTime(event.createdAt)}</small></div></article>)}
-          {!data.activity.length && <div className="empty-activity"><span>⌁</span><p>Zdarzenia pojawią się, gdy zespół rozpocznie pracę.</p></div>}
+          {activity.map((event) => <article key={`${event.board}-${event.id}`}><div className={`activity-icon ${event.kind}`}>{event.kind === "completed" ? "✓" : event.kind === "blocked" ? "!" : "·"}</div><div><p><strong>{event.assignee || "System"}</strong> {eventSummary(event)}</p><button onClick={() => { if (event.board !== board) { selectBoard(event.board); } else { setSelectedTask(tasks.find((t) => t.id === event.taskId) || null); } }}>{event.taskTitle}</button><small>{event.board} · {relativeTime(event.createdAt)}</small></div></article>)}
+          {!activity.length && <div className="empty-activity"><span>⌁</span><p>Zdarzenia pojawią się, gdy zespół rozpocznie pracę.</p></div>}
         </div></aside>
       </div>
     </main>}

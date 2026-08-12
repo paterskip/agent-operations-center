@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ActivityEvent, AgentSummary, BoardSummary, DashboardSnapshot, TaskCard } from "./types";
+import type { ActivityEntry } from "./kanban-delta";
 
 const kanbanRoot = process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
 const profilesRoot = process.env.HERMES_PROFILES_ROOT || "/root/.hermes/profiles";
@@ -214,7 +215,7 @@ export type TaskLiveDelta = {
   id: string;
   status: string;
   assignee: string | null;
-  boardSlug: string;
+  board: string;
   lastHeartbeatAt: number | null;
 };
 
@@ -263,7 +264,7 @@ export function getTaskDeltas(): TaskLiveDelta[] {
       const db = openReadOnly(board.dbPath);
       try {
         const rows = db.prepare("SELECT id, status, assignee, last_heartbeat_at FROM tasks WHERE status != 'archived' ORDER BY priority DESC, created_at DESC").all() as AnyRow[];
-        for (const r of rows) deltas.push({ id: String(r.id), status: String(r.status), assignee: r.assignee == null ? null : String(r.assignee), boardSlug: board.slug, lastHeartbeatAt: r.last_heartbeat_at == null ? null : Number(r.last_heartbeat_at) });
+        for (const r of rows) deltas.push({ id: String(r.id), status: String(r.status), assignee: r.assignee == null ? null : String(r.assignee), board: board.slug, lastHeartbeatAt: r.last_heartbeat_at == null ? null : Number(r.last_heartbeat_at) });
       } finally { db.close(); }
     } catch { /* skip */ }
   }
@@ -293,4 +294,37 @@ export function activityCursor(): string {
       try { const row = db.prepare("SELECT MAX(id) id FROM task_events").get() as AnyRow | undefined; return `${board.slug}:${row?.id || 0}`; } finally { db.close(); }
     } catch { return `${board.slug}:0`; }
   }).join("|");
+}
+
+/** Events inserted after the given cursor (per board), newest first. */
+export function activityDelta(fromCursor: string): ActivityEntry[] {
+  const boards = discoverBoards();
+  const from = new Map<string, number>();
+  for (const part of fromCursor.split("|")) {
+    const [slug, id] = part.split(":");
+    from.set(slug, Number(id || 0));
+  }
+  const out: ActivityEntry[] = [];
+  for (const board of boards) {
+    const lastId = from.get(board.slug) ?? 0;
+    try {
+      const db = openReadOnly(board.dbPath);
+      try {
+        const rows = db.prepare(
+          `SELECT e.id, e.kind, e.created_at, e.task_id, t.title, t.assignee
+           FROM task_events e LEFT JOIN tasks t ON t.id = e.task_id
+           WHERE e.id > ? ORDER BY e.id DESC LIMIT 20`
+        ).all(lastId) as AnyRow[];
+        for (const r of rows) {
+          out.push({
+            id: Number(r.id), board: board.slug, kind: String(r.kind),
+            taskId: String(r.task_id), taskTitle: String(r.title || ""),
+            assignee: r.assignee == null ? null : String(r.assignee),
+            createdAt: Number(r.created_at),
+          });
+        }
+      } finally { db.close(); }
+    } catch { /* skip board */ }
+  }
+  return out.sort((a, b) => b.id - a.id).slice(0, 20);
 }
