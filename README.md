@@ -40,7 +40,7 @@ docker compose ps
 
 The container binds only to `127.0.0.1:3010`. Put Caddy or Nginx in front of it for TLS and a domain. Never change the mapping to `0.0.0.0` without a firewall and authentication layer.
 
-Example Caddy site:
+Example Caddy site with Authelia (see `docker-compose.yml` for the Authelia service; you must create `deploy/authelia/` with your own `configuration.yml` + `users_database.yml`):
 
 ```caddy
 agents.example.com {
@@ -48,6 +48,8 @@ agents.example.com {
     reverse_proxy 127.0.0.1:3010
 }
 ```
+
+Authelia must be configured to emit `remote-user` and `remote-groups` headers (the app reads exactly these two). It must also **strip inbound `remote-user` / `remote-groups` headers from clients** — otherwise the header trust chain is broken. Basic auth or Authelia without 2FA is a minimum guard; prefer enforcing 2FA in the identity provider for public deployments.
 
 ## Security model
 

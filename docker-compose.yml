@@ -6,7 +6,7 @@ services:
       HERMES_KANBAN_ROOT: /data/kanban
       HERMES_PROFILES_ROOT: /data/profiles-not-mounted
       AOC_AGENTS: pm,coder,coder-parallel,designer,tester,reviewer
-      AOC_USERNAME: ceo
+      AOC_USERNAME: ${AOC_USERNAME:-ceo}
       AOC_PUBLIC_URL: https://agents.paterski.com
       AOC_STATE_DB: /data/state/aoc.db
     volumes:

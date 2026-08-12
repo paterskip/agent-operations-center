@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSnapshot } from "@/lib/hermes";
 import { audit, enqueueMove, listMoves } from "@/lib/state";
+import { ALLOWED_DROPS, isAllowedMove } from "@/lib/transitions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -8,17 +9,6 @@ export const runtime = "nodejs";
 function ip(request: NextRequest) {
   return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 }
-
-const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  triage: ["triage", "todo"],
-  todo: ["triage", "todo", "scheduled"],
-  scheduled: ["todo", "scheduled", "ready"],
-  ready: ["todo", "scheduled", "ready", "running"],
-  running: ["ready", "running", "blocked", "review"],
-  blocked: ["blocked"], // CEO unblock only via decisions panel, not DnD
-  review: ["running", "review", "done"],
-  done: ["review", "done", "todo"],
-};
 
 export function GET(request: NextRequest) {
   const board = request.nextUrl.searchParams.get("board") || undefined;
@@ -78,20 +68,17 @@ export async function PATCH(request: NextRequest) {
 
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(board) || !/^[A-Za-z0-9_-]{3,80}$/.test(taskId)) return NextResponse.json({ error: "Nieprawidłowy board lub task" }, { status: 400 });
 
+    const allowedTargets = ALLOWED_DROPS[targetStatus];
+    if (!allowedTargets) return NextResponse.json({ error: `Nieznany status docelowy: ${targetStatus}` }, { status: 400 });
+
     const snapshot = getSnapshot(board);
     if (snapshot.selectedBoard !== board) return NextResponse.json({ error: "Nieznany board" }, { status: 404 });
     const task = snapshot.tasks.find((t) => t.id === taskId);
     if (!task) return NextResponse.json({ error: "Task nie istnieje" }, { status: 404 });
-
     if (task.status === targetStatus) return NextResponse.json({ error: "Task już ma ten status" }, { status: 409 });
-
-    const allowedTargets = ALLOWED_TRANSITIONS[task.status];
-    if (!allowedTargets) return NextResponse.json({ error: `Nieznany status źródłowy: ${task.status}` }, { status: 400 });
-    if (!allowedTargets.includes(targetStatus)) return NextResponse.json({ error: `Przejście ${task.status}→${targetStatus} nie jest dozwolone` }, { status: 409 });
-
-    // blocked→ready requires CEO decision flow, redirect
-    if (task.status === "blocked" && targetStatus === "ready") {
-      return NextResponse.json({ error: "Użyj akcji 'Akceptuj i odblokuj' w panelu decyzji CEO" }, { status: 409 });
+    if (!isAllowedMove(task.status, targetStatus)) {
+      if (task.status === "blocked") return NextResponse.json({ error: "Użyj akcji decyzji CEO (Akceptuj / Odrzuć / Wznów), aby odblokować kartę" }, { status: 409 });
+      return NextResponse.json({ error: `Przejście ${task.status}→${targetStatus} nie jest dozwolone` }, { status: 409 });
     }
 
     const result = enqueueMove({

@@ -128,3 +128,13 @@
 .task-drawer .task-id-copy code{font-size:12px;color:#7e90a7}
 .task-priority{flex:0 0 auto}
 @media(hover:none){.task-id-copy{min-height:28px}}
+
+/* ── Audit fixes: contrast, focus visibility, refresh indicator ── */
+.empty-activity p button{background:none;border:0;color:var(--blue);font-size:11px;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.empty-activity p button:hover{color:#7dbdff}
+.empty-activity{color:#6b7b90}
+.search-input-row input:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.refreshing{font-size:11px;color:var(--amber)}
+.activity-row small{color:#6b7b90;font-size:9px}
+.sidebar-event small{font-size:10px;color:#8c9aab}
+.task-card.compact footer{color:#7c8ba0;font-size:9px}
