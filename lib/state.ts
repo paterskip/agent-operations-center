@@ -42,8 +42,6 @@ function openState() {
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
         FOREIGN KEY(idea_id) REFERENCES ideas(id)
       );
-      CREATE TABLE IF NOT EXISTS auth_failures (ip TEXT NOT NULL, created_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS used_recovery_codes (code_hash TEXT PRIMARY KEY, used_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS audit_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL,
         target TEXT, detail TEXT, ip TEXT, created_at INTEGER NOT NULL
@@ -117,53 +115,23 @@ export function createIdea(input: Omit<Idea, "id" | "status" | "hermesTaskId" | 
   } finally { db.close(); }
 }
 
-export function failedAttempts(ip: string) {
-  const db = openState();
-  try {
-    const cutoff = Math.floor(Date.now() / 1000) - 15 * 60;
-    db.prepare("DELETE FROM auth_failures WHERE created_at < ?").run(cutoff);
-    return Number((db.prepare("SELECT COUNT(*) count FROM auth_failures WHERE ip=?").get(ip) as { count: number }).count);
-  } finally { db.close(); }
-}
-
-export function recordAuthFailure(ip: string) {
-  const db = openState();
-  try { db.prepare("INSERT INTO auth_failures(ip,created_at) VALUES(?,?)").run(ip, Math.floor(Date.now() / 1000)); }
-  finally { db.close(); }
-}
-
-export function clearAuthFailures(ip: string) {
-  const db = openState();
-  try { db.prepare("DELETE FROM auth_failures WHERE ip=?").run(ip); }
-  finally { db.close(); }
-}
-
-export function consumeRecoveryCode(hash: string) {
-  const db = openState();
-  try {
-    if (db.prepare("SELECT 1 FROM used_recovery_codes WHERE code_hash=?").get(hash)) return false;
-    db.prepare("INSERT INTO used_recovery_codes(code_hash,used_at) VALUES(?,?)").run(hash, Math.floor(Date.now() / 1000));
-    return true;
-  } finally { db.close(); }
-}
-
 export function audit(actor: string, action: string, target: string | null, detail: string | null, ip: string | null) {
   const db = openState();
   try { db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES(?,?,?,?,?,?)").run(actor, action, target, detail, ip, Math.floor(Date.now() / 1000)); }
   finally { db.close(); }
 }
 
-export type SecurityLogEntry = {
+export type AuditLogEntry = {
   id: number; actor: string; action: string; target: string | null;
   detail: string | null; ip: string | null; createdAt: number;
 };
 
-export function getSecurityLog(limit = 20): SecurityLogEntry[] {
+export function getAuditLog(limit = 100): AuditLogEntry[] {
   const db = openState();
   try {
     return db.prepare(
-      "SELECT id,actor,action,target,detail,ip,created_at createdAt FROM audit_log WHERE action LIKE 'password%' OR action LIKE 'login%' OR action LIKE 'auth%' ORDER BY id DESC LIMIT ?"
-    ).all(limit) as SecurityLogEntry[];
+      "SELECT id,actor,action,target,detail,ip,created_at createdAt FROM audit_log ORDER BY id DESC LIMIT ?"
+    ).all(limit) as AuditLogEntry[];
   } finally { db.close(); }
 }
 

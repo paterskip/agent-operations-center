@@ -51,6 +51,14 @@ agents.example.com {
 
 Authelia must be configured to emit `remote-user` and `remote-groups` headers (the app reads exactly these two). It must also **strip inbound `remote-user` / `remote-groups` headers from clients** — otherwise the header trust chain is broken. Basic auth or Authelia without 2FA is a minimum guard; prefer enforcing 2FA in the identity provider for public deployments.
 
+### Password management
+
+The panel deliberately does **not** manage passwords — that stays in Authelia's hands:
+
+- **Self-service reset**: Authelia's built-in reset-password flow (requires SMTP in `deploy/authelia/configuration.yml`).
+- **Admin (no SMTP needed)**: `docker exec agent-operations-center-authelia-1 authelia admin user password <username>` — sets a new hash atomically via Authelia's own CLI (no YAML editing by the app).
+- **Brute-force protection**: enforced by Authelia itself (per-user/IP bans), not by the app.
+
 ## Security model
 
 - The application opens SQLite with `readonly` and `query_only` enabled.

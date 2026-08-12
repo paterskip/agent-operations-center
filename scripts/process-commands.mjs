@@ -25,8 +25,6 @@ const hermes = process.env.HERMES_BIN || "/usr/local/bin/hermes";
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
       FOREIGN KEY(idea_id) REFERENCES ideas(id)
     );
-    CREATE TABLE IF NOT EXISTS auth_failures (ip TEXT NOT NULL, created_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS used_recovery_codes (code_hash TEXT PRIMARY KEY, used_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS audit_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL,
       target TEXT, detail TEXT, ip TEXT, created_at INTEGER NOT NULL
@@ -276,8 +274,11 @@ function backupKanban() {
 function checkpointAll() {
   try {
     db.pragma("wal_checkpoint(TRUNCATE)");
-    // Also checkpoint Hermes state DBs
-    for (const statePath of [
+    // Hermes kanban boards — keeps the docker reader's ro-mounted main DBs fresh
+    const kanbanRoot = process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
+    const boardsDir = path.join(kanbanRoot, "boards");
+    const statePaths = [
+      path.join(kanbanRoot, "..", "kanban.db"),
       "/root/.hermes/state.db",
       "/root/.hermes/profiles/pm/state.db",
       "/root/.hermes/profiles/reviewer/state.db",
@@ -285,7 +286,14 @@ function checkpointAll() {
       "/root/.hermes/profiles/coder-parallel/state.db",
       "/root/.hermes/profiles/designer/state.db",
       "/root/.hermes/profiles/tester/state.db",
-    ]) {
+    ];
+    if (fs.existsSync(boardsDir)) {
+      for (const slug of fs.readdirSync(boardsDir)) {
+        if (slug.startsWith("_") || slug.includes("..")) continue;
+        statePaths.push(path.join(boardsDir, slug, "kanban.db"));
+      }
+    }
+    for (const statePath of statePaths) {
       if (fs.existsSync(statePath)) {
         try {
           const hdb = new Database(statePath);

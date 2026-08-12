@@ -71,7 +71,8 @@ export default function Dashboard() {
   const pendingScrollRef = useRef<string | null>(null);
 
   // ── DnD state ──
-  const draggingTaskIdRef = useRef<string | null>(null);
+  const draggingTaskIdRef = useRef<string | null>(null); // event handlers + SSE guard (not render)
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null); // render-safe
   const [dragOverStatus, setDragOverStatus] = useState<TaskCard["status"] | null>(null);
 
   // ── Task Creator state ──
@@ -255,14 +256,16 @@ export default function Dashboard() {
 
   const tid = selectedTask?.id;
   useEffect(() => {
-    // Czyścimy natychmiast przy zmianie karty — historia poprzedniego zadania
+    // Czyścimy przy zmianie karty — historia poprzedniego zadania
     // nie może być widoczna ani przez chwilę, ani gdy fetch się nie powiedzie.
-    setDecisions([]);
-    setDecisionComment("");
-    setDecisionMessage("");
-    if (!tid) return;
     let active = true;
-    const t = setTimeout(() => void loadDecisions(board, tid, () => active), 0);
+    const t = setTimeout(() => {
+      if (!active) return;
+      setDecisions([]);
+      setDecisionComment("");
+      setDecisionMessage("");
+      if (tid) void loadDecisions(board, tid, () => active);
+    }, 0);
     return () => { active = false; clearTimeout(t); };
   }, [board, tid, loadDecisions]);
 
@@ -378,6 +381,7 @@ export default function Dashboard() {
 
   function handleDragStart(event: DragStartEvent) {
     draggingTaskIdRef.current = String(event.active.id);
+    setDraggingTaskId(String(event.active.id));
     setDragOverStatus(null);
   }
 
@@ -396,6 +400,7 @@ export default function Dashboard() {
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     draggingTaskIdRef.current = null;
+    setDraggingTaskId(null);
     setDragOverStatus(null);
     if (!over || !data) return;
 
@@ -494,7 +499,7 @@ export default function Dashboard() {
         <button className="nav-item" onClick={() => { if (view === "board") scrollTo("inbox"); else { pendingScrollRef.current = "inbox"; setView("board"); } }}><span>＋</span> CEO Inbox</button>
         <button className="nav-item" onClick={() => { if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
         <button className="nav-item" onClick={() => setSearchOpen(true)}><span>⌕</span> Search <kbd>⌘K</kbd></button>
-        <button className={`nav-item ${view === "security" ? "active" : ""}`} onClick={() => setView("security")}><span>⚿</span> Security</button>
+        <button className={`nav-item ${view === "security" ? "active" : ""}`} onClick={() => setView("security")}><span>⚿</span> Audyt</button>
       </nav>
       <div className="sidebar-foot">
         <div className="sidebar-activity">
@@ -608,7 +613,7 @@ export default function Dashboard() {
                 {STATUSES.map((status) => {
                   const tasks = visibleTasks.filter((t) => t.status === status);
                   const isCollapsed = collapsed.has(status);
-                  const draggingTask = data.tasks.find((t) => t.id === draggingTaskIdRef.current);
+                  const draggingTask = data.tasks.find((t) => t.id === draggingTaskId);
                   const isInvalidDrop = Boolean(
                     dragOverStatus === status && draggingTask && !(ALLOWED_DROP_TARGETS[draggingTask.status] || []).includes(status)
                   );

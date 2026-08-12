@@ -21,8 +21,6 @@ db.exec(`
     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
     FOREIGN KEY(idea_id) REFERENCES ideas(id)
   );
-  CREATE TABLE IF NOT EXISTS auth_failures (ip TEXT NOT NULL, created_at INTEGER NOT NULL);
-  CREATE TABLE IF NOT EXISTS used_recovery_codes (code_hash TEXT PRIMARY KEY, used_at INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL,
     target TEXT, detail TEXT, ip TEXT, created_at INTEGER NOT NULL
