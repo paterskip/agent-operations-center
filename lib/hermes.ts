@@ -88,7 +88,16 @@ function unwrapBody(body: string): string {
       let out = "";
       for (let i = 0; i < slice.length; i++) {
         const ch = slice[i];
-        if (ch === "\\") { const nxt = slice[i + 1]; out += nxt === "n" ? "\n" : nxt === "t" ? "\t" : nxt === "r" ? "\r" : nxt === '"' ? '"' : nxt === "\\" ? "\\" : ch + (nxt ?? ""); i++; continue; }
+        if (ch === "\\") {
+          const nxt = slice[i + 1];
+          if (nxt === "u") {
+            const hex = slice.slice(i + 2, i + 6);
+            if (/^[0-9a-fA-F]{4}$/.test(hex)) { out += String.fromCharCode(parseInt(hex, 16)); i += 5; continue; }
+            out += "u"; i += 1; continue;
+          }
+          out += nxt === "n" ? "\n" : nxt === "t" ? "\t" : nxt === "r" ? "\r" : nxt === '"' ? '"' : nxt === "\\" ? "\\" : nxt === "b" ? "\b" : nxt === "f" ? "\f" : ch + (nxt ?? "");
+          i++; continue;
+        }
         if (ch === '"') break;
         out += ch;
       }

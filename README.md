@@ -59,6 +59,14 @@ The panel deliberately does **not** manage passwords — that stays in Authelia'
 - **Admin (no SMTP needed)**: `docker exec agent-operations-center-authelia-1 authelia admin user password <username>` — sets a new hash atomically via Authelia's own CLI (no YAML editing by the app).
 - **Brute-force protection**: enforced by Authelia itself (per-user/IP bans), not by the app.
 
+### Kanban transitions (DnD)
+
+The drag-and-drop surface only exposes transitions the `hermes kanban` CLI can execute natively (`schedule`, `claim`, `block`, `complete`, `reopen-review`; blocked tasks move through the CEO decision flow via `unblock`). Other lanes are agent-driven by design (`triage` is specified/decomposed by agents, `scheduled→ready` happens via `recompute_ready`, `review→done` by the reviewer) — a comment alone never changes task status.
+
+### CSP in development
+
+The middleware adds `'unsafe-eval'` to `script-src` only when `NODE_ENV !== "production"` (React dev mode requirement). Production builds (`next start` / the Docker image) never include it. If you run a staging environment, make sure it boots with `NODE_ENV=production`.
+
 ## Security model
 
 - The application opens SQLite with `readonly` and `query_only` enabled.

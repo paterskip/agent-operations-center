@@ -180,30 +180,21 @@ function processMove() {
 
       const transition = `${move.fromStatus}\u2192${move.toStatus}`;
 
-      if (move.fromStatus === "triage" && move.toStatus === "todo") {
-        // `specify` to jedyna komenda, ktora realnie przenosi triage -> todo.
-        // Wczesniej dodawany byl tylko komentarz, wiec karta zostawala w triage.
-        runHermes(move.board, ["specify", move.taskId, "--author", "CEO Web"]);
-        runHermes(move.board, ["comment", move.taskId, `CEO moved: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
-      } else if (move.fromStatus === "todo" && move.toStatus === "scheduled") {
+      // Only CLI-executable transitions (see lib/transitions.ts). Every other
+      // move is agent-driven by design — a `comment` alone does NOT change
+      // status (verified 2026-08-12), and `specify`/`promote` require an aux
+      // LLM or a specific source status, so they are not used here.
+      if (move.fromStatus === "todo" && move.toStatus === "scheduled") {
         runHermes(move.board, ["schedule", move.taskId, "CEO scheduled via Kanban panel"]);
-      } else if (move.fromStatus === "scheduled" && move.toStatus === "todo") {
-        runHermes(move.board, ["comment", move.taskId, `CEO descheduled: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
-      } else if (move.fromStatus === "scheduled" && move.toStatus === "ready") {
-        runHermes(move.board, ["promote", move.taskId, "CEO promoted via Kanban panel"]);
-      } else if (move.fromStatus === "ready" && move.toStatus === "todo") {
-        runHermes(move.board, ["comment", move.taskId, `CEO moved back to todo: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
       } else if (move.fromStatus === "ready" && move.toStatus === "running") {
-        runHermes(move.board, ["promote", move.taskId, "CEO promoted via Kanban panel"]);
+        runHermes(move.board, ["claim", move.taskId, "--ttl", "3600"]);
       } else if (move.fromStatus === "running" && move.toStatus === "blocked") {
         runHermes(move.board, ["block", move.taskId, "CEO blocked via Kanban panel", "--kind", "needs_input"]);
       } else if (move.fromStatus === "running" && move.toStatus === "review") {
         const result = move.comment.includes("CEO drag") ? "Moved to review by CEO" : move.comment;
         runHermes(move.board, ["complete", move.taskId, "--result", result]);
-      } else if (move.fromStatus === "review" && move.toStatus === "done") {
-        runHermes(move.board, ["comment", move.taskId, `CEO accepted review: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
-      } else if (move.fromStatus === "done" && move.toStatus === "todo") {
-        runHermes(move.board, ["comment", move.taskId, `CEO reopened: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
+      } else if (move.fromStatus === "review" && move.toStatus === "ready") {
+        runHermes(move.board, ["reopen-review", move.taskId, "--reason", "CEO sent back: review\u2192ready"]);
       } else {
         throw new Error(`Unsupported transition: ${transition}`);
       }
