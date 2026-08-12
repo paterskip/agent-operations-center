@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyTaskDeltas, mergeActivity, type ActivityEntry } from "./kanban-delta";
+import { applyTaskDeltas, classifyEvents, mergeActivity, WORK_KINDS, type ActivityEntry } from "./kanban-delta";
 
 const base = [
   { id: "t1", status: "todo", assignee: "coder", board: "default" },
@@ -59,5 +59,30 @@ describe("mergeActivity", () => {
     const next = mergeActivity(prev, [e(61)], 60);
     expect(next.length).toBe(60);
     expect(next[0].id).toBe(61);
+  });
+});
+
+describe("classifyEvents — SSE event classification (regression: heartbeats caused reloads)", () => {
+  it("heartbeat-only tick → presence (never a board update)", () => {
+    expect(classifyEvents([{ kind: "heartbeat" }])).toBe("presence");
+    expect(classifyEvents([{ kind: "heartbeat" }, { kind: "heartbeat" }])).toBe("presence");
+  });
+
+  it("empty batch → none", () => {
+    expect(classifyEvents([])).toBe("none");
+  });
+
+  it("any work kind → work", () => {
+    for (const kind of ["completed", "blocked", "promoted", "created", "commented", "reopened"]) {
+      expect(classifyEvents([{ kind }])).toBe("work");
+    }
+  });
+
+  it("heartbeat mixed with work → work", () => {
+    expect(classifyEvents([{ kind: "heartbeat" }, { kind: "completed" }])).toBe("work");
+  });
+
+  it("WORK_KINDS must NOT include heartbeat (the churn culprit)", () => {
+    expect(WORK_KINDS.has("heartbeat")).toBe(false);
   });
 });

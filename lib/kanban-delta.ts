@@ -54,3 +54,20 @@ export function mergeActivity<T extends { id: number }>(prev: T[], incoming: T[]
   if (!fresh.length) return prev;
   return [...fresh, ...prev].slice(0, cap);
 }
+
+/**
+ * Kinds that represent real work — they move cards or add to the feed.
+ * Pure `heartbeat` ticks only advance presence, never trigger a board update.
+ * (Regression guard: heartbeats caused full reloads during work sessions.)
+ */
+export const WORK_KINDS = new Set([
+  "completed", "blocked", "promoted", "created", "archived", "unblocked",
+  "claimed", "spawned", "specified", "assigned", "dependency_wait",
+  "block_loop_detected", "timed_out", "commented", "reopened",
+]);
+
+/** Classify a batch of new activity entries for the SSE emitter. */
+export function classifyEvents(entries: { kind: string }[]): "work" | "presence" | "none" {
+  if (!entries.length) return "none";
+  return entries.some((e) => WORK_KINDS.has(e.kind)) ? "work" : "presence";
+}

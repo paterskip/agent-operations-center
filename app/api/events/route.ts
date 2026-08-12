@@ -1,15 +1,8 @@
 import { activityCursor, activityDelta, getAgentStatuses, getTaskDeltas } from "@/lib/hermes";
+import { classifyEvents } from "@/lib/kanban-delta";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-// Kinds that represent real work — they may move cards or add to the feed.
-// Pure `heartbeat` ticks only advance the presence (agents view) via `presence`.
-const WORK_KINDS = new Set([
-  "completed", "blocked", "promoted", "created", "archived", "unblocked",
-  "claimed", "spawned", "specified", "assigned", "dependency_wait",
-  "block_loop_detected", "timed_out", "commented", "reopened",
-]);
 
 export function GET(request: Request) {
   const encoder = new TextEncoder();
@@ -27,7 +20,7 @@ export function GET(request: Request) {
           if (cursor !== previousCursor) {
             const entries = activityDelta(previousCursor);
             previousCursor = cursor;
-            const hasWork = entries.some((e) => WORK_KINDS.has(e.kind));
+            const hasWork = classifyEvents(entries) === "work";
             const payload = { cursor, agents: getAgentStatuses() };
             if (hasWork) {
               // Real work: send task deltas + new activity so the client can
