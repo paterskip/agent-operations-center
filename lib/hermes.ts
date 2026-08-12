@@ -107,30 +107,44 @@ function unwrapBody(body: string): string {
   return body;
 }
 
-function profileDescriptions(): Map<string, string> {
-  const profiles = new Map<string, string>();
-  for (const name of (process.env.AOC_AGENTS || "pm,coder,coder-parallel,designer,tester,reviewer").split(",").map((item) => item.trim()).filter(Boolean)) profiles.set(name, "Hermes specialist");
+function profileMeta(): Map<string, { name: string; description: string }> {
+  const profiles = new Map<string, { name: string; description: string }>();
+  const fallbackNames: Record<string, string> = { default: "Default Agent" };
+  for (const slug of (process.env.AOC_AGENTS || "pm,coder,coder-parallel,designer,tester,reviewer").split(",").map((item) => item.trim()).filter(Boolean)) {
+    profiles.set(slug, { name: fallbackNames[slug] || slug, description: "Hermes specialist" });
+  }
   if (!fs.existsSync(/* turbopackIgnore: true */ profilesRoot)) return profiles;
-  for (const name of fs.readdirSync(/* turbopackIgnore: true */ profilesRoot).sort()) {
-    const profilePath = path.join(profilesRoot, name, "profile.yaml");
+  for (const slug of fs.readdirSync(/* turbopackIgnore: true */ profilesRoot).sort()) {
+    const profilePath = path.join(profilesRoot, slug, "profile.yaml");
     if (!fs.existsSync(profilePath)) continue;
     const raw = fs.readFileSync(profilePath, "utf8");
-    const match = raw.match(/^description:\s*([\s\S]*?)(?=^\w|\Z)/m);
-    profiles.set(name, (match?.[1] || "").replace(/\n\s+/g, " ").trim());
+    const nameMatch = raw.match(/^name:\s*(.+)$/m);
+    const descMatch = raw.match(/^description:\s*([\s\S]*?)(?=^\w|\Z)/m);
+    const fallback = profiles.get(slug);
+    profiles.set(slug, {
+      name: (nameMatch?.[1] || "").trim() || fallback?.name || slug,
+      description: (descMatch?.[1] || "").replace(/\n\s+/g, " ").trim() || fallback?.description || "Hermes specialist",
+    });
   }
   return profiles;
 }
 
+export function agentDisplayName(slug: string): string {
+  const meta = profileMeta();
+  return meta.get(slug)?.name || (slug === "default" ? "Default Agent" : slug);
+}
+
 function agentSummaries(boards: BoardRecord[], tasksByBoard: Map<string, TaskCard[]>): AgentSummary[] {
-  const descriptions = profileDescriptions();
-  const names = new Set(descriptions.keys());
-  for (const tasks of tasksByBoard.values()) for (const task of tasks) if (task.assignee) names.add(task.assignee);
-  return [...names].sort().map((name) => {
+  const meta = profileMeta();
+  const slugs = new Set(meta.keys());
+  for (const tasks of tasksByBoard.values()) for (const task of tasks) if (task.assignee) slugs.add(task.assignee);
+  return [...slugs].sort().map((slug) => {
     const all = [...tasksByBoard.entries()].flatMap(([board, tasks]) => tasks.map((task) => ({ board, task })));
-    const running = all.find(({ task }) => task.assignee === name && task.status === "running");
-    const blocked = all.filter(({ task }) => task.assignee === name && task.status === "blocked");
-    const owned = all.filter(({ task }) => task.assignee === name);
-    return { name, description: descriptions.get(name) || "Hermes specialist", status: running ? "working" : blocked.length ? "blocked" : "idle", currentTask: running?.task.title || null, currentBoard: running?.board || null, completed: owned.filter(({ task }) => task.status === "done").length, blocked: blocked.length, lastHeartbeatAt: running?.task.lastHeartbeatAt || null };
+    const running = all.find(({ task }) => task.assignee === slug && task.status === "running");
+    const blocked = all.filter(({ task }) => task.assignee === slug && task.status === "blocked");
+    const owned = all.filter(({ task }) => task.assignee === slug);
+    const m = meta.get(slug);
+    return { slug, name: m?.name || (slug === "default" ? "Default Agent" : slug), description: m?.description || "Hermes specialist", status: running ? "working" : blocked.length ? "blocked" : "idle", currentTask: running?.task.title || null, currentBoard: running?.board || null, completed: owned.filter(({ task }) => task.status === "done").length, blocked: blocked.length, lastHeartbeatAt: running?.task.lastHeartbeatAt || null };
   });
 }
 
@@ -161,6 +175,7 @@ function safeReadActivity(boards: BoardRecord[], limit = 60): ActivityEvent[] {
 // ── Lightweight helpers for SSE live updates (avoid full snapshot rebuild) ──
 
 export type AgentLiveStatus = {
+  slug: string;
   name: string;
   status: "working" | "blocked" | "idle";
   currentTask: string | null;
@@ -178,8 +193,8 @@ export type TaskLiveDelta = {
 
 export function getAgentStatuses(): AgentLiveStatus[] {
   const boards = discoverBoards();
-  const descriptions = profileDescriptions();
-  const names = new Set(descriptions.keys());
+  const meta = profileMeta();
+  const slugs = new Set(meta.keys());
   const statuses = new Map<string, { running: { title: string; board: string; heartbeat: number | null } | null; blocked: number }>();
 
   for (const board of boards) {
@@ -188,21 +203,23 @@ export function getAgentStatuses(): AgentLiveStatus[] {
       try {
         const rows = db.prepare("SELECT assignee, status, title, last_heartbeat_at FROM tasks WHERE status IN ('running','blocked') AND assignee IS NOT NULL").all() as AnyRow[];
         for (const r of rows) {
-          const name = String(r.assignee);
-          names.add(name);
-          const entry = statuses.get(name) || { running: null, blocked: 0 };
+          const slug = String(r.assignee);
+          slugs.add(slug);
+          const entry = statuses.get(slug) || { running: null, blocked: 0 };
           if (r.status === "running") entry.running = { title: String(r.title), board: board.slug, heartbeat: r.last_heartbeat_at == null ? null : Number(r.last_heartbeat_at) };
           if (r.status === "blocked") entry.blocked++;
-          statuses.set(name, entry);
+          statuses.set(slug, entry);
         }
       } finally { db.close(); }
     } catch { /* skip unreadable board */ }
   }
 
-  return [...names].sort().map((name) => {
-    const s = statuses.get(name);
+  return [...slugs].sort().map((slug) => {
+    const s = statuses.get(slug);
+    const m = meta.get(slug);
     return {
-      name,
+      slug,
+      name: m?.name || (slug === "default" ? "Default Agent" : slug),
       status: s?.running ? "working" : (s?.blocked && s.blocked > 0) ? "blocked" : "idle",
       currentTask: s?.running?.title || null,
       currentBoard: s?.running?.board || null,

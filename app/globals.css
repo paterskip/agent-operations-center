@@ -138,3 +138,22 @@
 .activity-row small{color:#6b7b90;font-size:9px}
 .sidebar-event small{font-size:10px;color:#8c9aab}
 .task-card.compact footer{color:#7c8ba0;font-size:9px}
+
+/* ── Agent scorecard (delivery metrics) ── */
+.scorecard{margin-top:18px}
+.scorecard-table{display:grid;gap:8px}
+.scorecard-row{display:grid;grid-template-columns:minmax(120px,200px) 1fr minmax(150px,auto);align-items:center;gap:12px;padding:8px 12px;background:#101722;border:1px solid var(--line);border-radius:10px}
+.scorecard-name{font-size:12px;font-weight:600;color:#c0c9d4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scorecard-bar{height:8px;border-radius:4px;background:#182232;overflow:hidden}
+.scorecard-bar i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#286baa,#6755c9)}
+.scorecard-nums{display:flex;gap:10px;font-size:11px;white-space:nowrap}
+.scorecard-nums b{color:var(--green);font-variant-numeric:tabular-nums}
+.scorecard-nums em{color:#8c9aab;font-style:normal;font-variant-numeric:tabular-nums}
+.scorecard-nums em.rework{color:var(--amber)}
+@media(max-width:760px){.scorecard-row{grid-template-columns:1fr;gap:6px}}
+
+/* ── SLA badges (decision age) ── */
+.sla-badge{font:700 9px ui-monospace,monospace;padding:2px 6px;border-radius:5px;color:#8c9aab;background:#182232;border:1px solid #243347;margin-left:auto;white-space:nowrap}
+.sla-badge.warn{color:var(--amber);border-color:#725927;background:#2a1f0d}
+.sla-badge.overdue{color:var(--red);border-color:#7a2f2f;background:#2a151b}
+.scorecard-nums em.cost{color:#9db4d0;font-weight:600}

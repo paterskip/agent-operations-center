@@ -12,6 +12,7 @@ export interface BoardSummary {
 }
 
 export interface AgentSummary {
+  slug: string;
   name: string;
   description: string;
   status: "working" | "blocked" | "idle";

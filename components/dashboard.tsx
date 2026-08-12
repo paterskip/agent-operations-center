@@ -58,6 +58,7 @@ export default function Dashboard() {
   const [live, setLive] = useState(false);
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
   const [ideaMessage, setIdeaMessage] = useState("");
+  const [scorecard, setScorecard] = useState<{ slug: string; name: string; done7: number; done30: number; blocked7: number; blocked30: number; rework30: number; running: number; total: number; sessions30: number; tokens30: number; cost30: number | null }[] | null>(null);
   const [submittingIdea, setSubmittingIdea] = useState(false);
   const [decisions, setDecisions] = useState<DecisionRecord[]>([]);
   const [decisionComment, setDecisionComment] = useState("");
@@ -135,6 +136,20 @@ export default function Dashboard() {
   const loadIdeas = useCallback(async () => {
     try { const r = await fetch("/api/ideas", { cache: "no-store" }); if (r.ok) setIdeas(((await r.json()) as { ideas: IdeaRecord[] }).ideas); } catch {}
   }, []);
+
+  /* Agent scorecard — refresh on mount + every 60s while on the board view */
+  useEffect(() => {
+    let active = true;
+    const fetchScorecard = () => {
+      fetch("/api/scorecard", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (active && j?.scorecard) setScorecard(j.scorecard); })
+        .catch(() => {});
+    };
+    fetchScorecard();
+    const timer = setInterval(() => { if (view === "board") fetchScorecard(); }, 60_000);
+    return () => { active = false; clearInterval(timer); };
+  }, [view]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -529,9 +544,12 @@ export default function Dashboard() {
       <section className="overview-grid">
         <div>
           <div className="section-head"><div><p className="eyebrow">DECYZJE</p><h2>Wymagające uwagi</h2></div></div>
-          {data.tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).slice(0, 6).map((t) => <button key={t.id} className="task-card compact" onClick={() => { setView("board"); setTimeout(() => { selectBoard(t.boardSlug); setTimeout(() => setSelectedTask(t), 100); }, 50); }}>
-            <div className="task-meta"><code>{t.id}</code><span className={`status-badge ${t.status}`}>{t.status}</span></div><h3>{t.title}</h3><footer>{t.boardSlug} · {t.assignee || "unassigned"}</footer>
-          </button>)}
+          {data.tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).sort((a, b) => (a.startedAt || a.createdAt) - (b.startedAt || b.createdAt)).slice(0, 6).map((t) => {
+            const ageH = Math.floor((Date.now() / 1000 - (t.startedAt || t.createdAt)) / 3600);
+            return <button key={t.id} className="task-card compact" onClick={() => { setView("board"); setTimeout(() => { selectBoard(t.boardSlug); setTimeout(() => setSelectedTask(t), 100); }, 50); }}>
+            <div className="task-meta"><code>{t.id}</code><span className={`status-badge ${t.status}`}>{t.status}</span><span className={`sla-badge ${ageH >= 48 ? "overdue" : ageH >= 24 ? "warn" : ""}`}>{ageH >= 24 ? `${Math.floor(ageH / 24)}d ${ageH % 24}h` : `${ageH}h`}</span></div><h3>{t.title}</h3><footer>{t.boardSlug} · {t.assignee || "unassigned"}</footer>
+          </button>;
+          })}
           {data.tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).length === 0 && <p className="empty-state">Wszystkie zadania są odblokowane. Świetnie!</p>}
         </div>
         <div>
@@ -583,13 +601,26 @@ export default function Dashboard() {
       <section className="agent-presence" id="agents">
         <div className="section-head"><div><p className="eyebrow">TEAM STATUS</p><h2>Agent workforce</h2></div><button className={agentFilter === "all" ? "filter active" : "filter"} onClick={() => setAgentFilter("all")}>Wszyscy</button></div>
         <div className="agent-grid">{data.agents.map((agent) => {
-          const wl = tasksPerAgent.get(agent.name);
-          return <button key={agent.name} onClick={() => setAgentFilter(agentFilter === agent.name ? "all" : agent.name)} className={`agent-card ${agent.status} ${agentFilter === agent.name ? "selected" : ""}`}>
-            <div className="agent-avatar">{roleIcon[agent.name] || "◇"}<span /></div>
+          const wl = tasksPerAgent.get(agent.slug);
+          return <button key={agent.slug} onClick={() => setAgentFilter(agentFilter === agent.slug ? "all" : agent.slug)} className={`agent-card ${agent.status} ${agentFilter === agent.slug ? "selected" : ""}`}>
+            <div className="agent-avatar">{roleIcon[agent.slug] || "◇"}<span /></div>
             <div className="agent-copy"><strong>{agent.name}</strong><small>{agent.status === "working" ? agent.currentTask : agent.status === "blocked" ? `${agent.blocked} blocked` : "Dostępny"}{wl && ` · ${wl.running || 0} active / ${wl.total || 0} total`}</small></div>
             <span className="agent-state" title={`${wl?.total || 0} zadań ogółem, ${wl?.running || 0} w toku, ${wl?.blocked || 0} zablokowanych`}>{agent.status}</span>
           </button>;
         })}</div>
+        {scorecard && scorecard.length > 0 && <div className="scorecard" aria-label="Wyniki agentów (30 dni)">
+          <div className="section-head"><div><p className="eyebrow">DELIVERY METRICS</p><h2>Scorecard — 30 dni</h2></div><span className="updated">odświeżanie co 60s</span></div>
+          <div className="scorecard-table">
+            {scorecard.map((row) => {
+              const max = Math.max(...scorecard.map((r) => r.done30), 1);
+              return <div className="scorecard-row" key={row.slug}>
+                <span className="scorecard-name" title={row.slug}>{row.name}</span>
+                <span className="scorecard-bar"><i style={{ width: `${Math.round((row.done30 / max) * 100)}%` }} /></span>
+                <span className="scorecard-nums"><b title="ukończone 7d/30d">{row.done7}/{row.done30}</b><em title="zablokowane 7d/30d">⚑ {row.blocked7}/{row.blocked30}</em>{row.rework30 > 0 && <em className="rework" title="zadania ukończone ponownie (rework)">↻ {row.rework30}</em>}<em title="w toku / ogółem">◉ {row.running}/{row.total}</em>{row.cost30 != null && <em className="cost" title={`${row.sessions30} sesji kanban · ${row.tokens30.toLocaleString("pl-PL")} tokenów (30 dni)`}>≈ ${row.cost30.toFixed(2)}</em>}</span>
+              </div>;
+            })}
+          </div>
+        </div>}
       </section>
 
       <div className="workspace-grid">
