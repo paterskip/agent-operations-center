@@ -247,13 +247,14 @@ function backupKanban() {
     const src = path.join(boardsDir, slug, "kanban.db");
     if (!fs.existsSync(src)) continue;
     const dest = path.join(backupDir, `${slug}-${timestamp}.db`);
+    // WAL consistency: try to checkpoint the board DB first (best-effort — Hermes
+    // may hold a write lock). better-sqlite3 13.x backup() crashes the process
+    // after completing, so we copy the file directly like before.
     try {
-      // WAL-consistent snapshot: copying the main file alone can miss recent WAL pages.
-      const source = new Database(src, { readonly: true });
-      try { source.backup(dest); } finally { source.close(); }
-    } catch {
-      fs.copyFileSync(src, dest); // fallback: plain copy when the DB is busy
-    }
+      const checkpoint = new Database(src);
+      try { checkpoint.pragma("wal_checkpoint(TRUNCATE)"); } finally { checkpoint.close(); }
+    } catch { /* busy — copy what is there */ }
+    fs.copyFileSync(src, dest);
   }
   for (const slug of fs.readdirSync(boardsDir)) {
     if (slug.startsWith("_") || slug.includes("..")) continue;
