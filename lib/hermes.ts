@@ -126,6 +126,74 @@ function safeReadActivity(boards: BoardRecord[], limit = 60): ActivityEvent[] {
   return events.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
 }
 
+// ── Lightweight helpers for SSE live updates (avoid full snapshot rebuild) ──
+
+export type AgentLiveStatus = {
+  name: string;
+  status: "working" | "blocked" | "idle";
+  currentTask: string | null;
+  currentBoard: string | null;
+  lastHeartbeatAt: number | null;
+};
+
+export type TaskLiveDelta = {
+  id: string;
+  status: string;
+  assignee: string | null;
+  boardSlug: string;
+  lastHeartbeatAt: number | null;
+};
+
+export function getAgentStatuses(): AgentLiveStatus[] {
+  const boards = discoverBoards();
+  const descriptions = profileDescriptions();
+  const names = new Set(descriptions.keys());
+  const statuses = new Map<string, { running: { title: string; board: string; heartbeat: number | null } | null; blocked: number }>();
+
+  for (const board of boards) {
+    try {
+      const db = openReadOnly(board.dbPath);
+      try {
+        const rows = db.prepare("SELECT assignee, status, title, last_heartbeat_at FROM tasks WHERE status IN ('running','blocked') AND assignee IS NOT NULL").all() as AnyRow[];
+        for (const r of rows) {
+          const name = String(r.assignee);
+          names.add(name);
+          const entry = statuses.get(name) || { running: null, blocked: 0 };
+          if (r.status === "running") entry.running = { title: String(r.title), board: board.slug, heartbeat: r.last_heartbeat_at == null ? null : Number(r.last_heartbeat_at) };
+          if (r.status === "blocked") entry.blocked++;
+          statuses.set(name, entry);
+        }
+      } finally { db.close(); }
+    } catch { /* skip unreadable board */ }
+  }
+
+  return [...names].sort().map((name) => {
+    const s = statuses.get(name);
+    return {
+      name,
+      status: s?.running ? "working" : (s?.blocked && s.blocked > 0) ? "blocked" : "idle",
+      currentTask: s?.running?.title || null,
+      currentBoard: s?.running?.board || null,
+      lastHeartbeatAt: s?.running?.heartbeat || null,
+    };
+  });
+}
+
+export function getTaskDeltas(): TaskLiveDelta[] {
+  const boards = discoverBoards();
+  const deltas: TaskLiveDelta[] = [];
+  for (const board of boards) {
+    try {
+      const db = openReadOnly(board.dbPath);
+      try {
+        const rows = db.prepare("SELECT id, status, assignee, last_heartbeat_at FROM tasks WHERE status != 'archived' ORDER BY priority DESC, created_at DESC").all() as AnyRow[];
+        for (const r of rows) deltas.push({ id: String(r.id), status: String(r.status), assignee: r.assignee == null ? null : String(r.assignee), boardSlug: board.slug, lastHeartbeatAt: r.last_heartbeat_at == null ? null : Number(r.last_heartbeat_at) });
+      } finally { db.close(); }
+    } catch { /* skip */ }
+  }
+  return deltas;
+}
+
 export function getSnapshot(requestedBoard?: string | null): DashboardSnapshot {
   const boards = discoverBoards();
   if (!boards.length) throw new Error("No Hermes Kanban boards found");

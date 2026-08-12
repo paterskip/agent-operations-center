@@ -10,14 +10,14 @@ function ip(request: NextRequest) {
 }
 
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  triage: ["todo"],
-  todo: ["scheduled"],
-  scheduled: ["todo", "ready"],
-  ready: ["todo", "running"],
-  running: ["blocked", "review"],
-  blocked: ["ready"], // CEO-only via decisions, but allow direct DnD from blocked→ready
-  review: ["done"],
-  done: ["todo"], // reopen
+  triage: ["triage", "todo"],
+  todo: ["triage", "todo", "scheduled"],
+  scheduled: ["todo", "scheduled", "ready"],
+  ready: ["todo", "scheduled", "ready", "running"],
+  running: ["ready", "running", "blocked", "review"],
+  blocked: ["blocked"], // CEO unblock only via decisions panel, not DnD
+  review: ["running", "review", "done"],
+  done: ["review", "done", "todo"],
 };
 
 export function GET(request: NextRequest) {
@@ -78,15 +78,16 @@ export async function PATCH(request: NextRequest) {
 
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(board) || !/^[A-Za-z0-9_-]{3,80}$/.test(taskId)) return NextResponse.json({ error: "Nieprawidłowy board lub task" }, { status: 400 });
 
-    const allowedTargets = ALLOWED_TRANSITIONS[targetStatus];
-    if (!allowedTargets) return NextResponse.json({ error: `Nieznany status docelowy: ${targetStatus}` }, { status: 400 });
-
     const snapshot = getSnapshot(board);
     if (snapshot.selectedBoard !== board) return NextResponse.json({ error: "Nieznany board" }, { status: 404 });
     const task = snapshot.tasks.find((t) => t.id === taskId);
     if (!task) return NextResponse.json({ error: "Task nie istnieje" }, { status: 404 });
-    if (!allowedTargets.includes(task.status)) return NextResponse.json({ error: `Przejście ${task.status}→${targetStatus} nie jest dozwolone` }, { status: 409 });
+
     if (task.status === targetStatus) return NextResponse.json({ error: "Task już ma ten status" }, { status: 409 });
+
+    const allowedTargets = ALLOWED_TRANSITIONS[task.status];
+    if (!allowedTargets) return NextResponse.json({ error: `Nieznany status źródłowy: ${task.status}` }, { status: 400 });
+    if (!allowedTargets.includes(targetStatus)) return NextResponse.json({ error: `Przejście ${task.status}→${targetStatus} nie jest dozwolone` }, { status: 409 });
 
     // blocked→ready requires CEO decision flow, redirect
     if (task.status === "blocked" && targetStatus === "ready") {

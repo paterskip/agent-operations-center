@@ -83,8 +83,13 @@ export function enqueueDecision(input: { board: string; taskId: string; action: 
 export function listDecisions(board?: string, taskId?: string): DecisionRecord[] {
   const db = openState();
   try {
-    const where = board && taskId ? "WHERE board=? AND task_id=?" : "";
-    const params = board && taskId ? [board, taskId] : [];
+    // Filtrujemy po każdym podanym kryterium z osobna. Wcześniej podanie samego
+    // taskId (bez board) cicho zwracało WSZYSTKIE decyzje z wszystkich kart.
+    const clauses: string[] = [];
+    const params: string[] = [];
+    if (board) { clauses.push("board=?"); params.push(board); }
+    if (taskId) { clauses.push("task_id=?"); params.push(taskId); }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     return db.prepare(`SELECT id,board,task_id taskId,action,from_status fromStatus,to_status toStatus,comment,status,result_status resultStatus,last_error lastError,created_at createdAt,updated_at updatedAt FROM task_decisions ${where} ORDER BY created_at DESC LIMIT 200`).all(...params) as DecisionRecord[];
   } finally { db.close(); }
 }
@@ -148,6 +153,20 @@ export function audit(actor: string, action: string, target: string | null, deta
   finally { db.close(); }
 }
 
+export type SecurityLogEntry = {
+  id: number; actor: string; action: string; target: string | null;
+  detail: string | null; ip: string | null; createdAt: number;
+};
+
+export function getSecurityLog(limit = 20): SecurityLogEntry[] {
+  const db = openState();
+  try {
+    return db.prepare(
+      "SELECT id,actor,action,target,detail,ip,created_at createdAt FROM audit_log WHERE action LIKE 'password%' OR action LIKE 'login%' OR action LIKE 'auth%' ORDER BY id DESC LIMIT ?"
+    ).all(limit) as SecurityLogEntry[];
+  } finally { db.close(); }
+}
+
 export type TaskMoveAction = "create" | "move";
 
 export type MoveRecord = {
@@ -179,8 +198,12 @@ export function enqueueMove(input: {
 export function listMoves(board?: string, taskId?: string): MoveRecord[] {
   const db = openState();
   try {
-    const where = board && taskId ? "WHERE board=? AND task_id=?" : "";
-    const params = board && taskId ? [board, taskId] : [];
+    // jw. — każde kryterium zawęża wynik niezależnie od drugiego
+    const clauses: string[] = [];
+    const params: string[] = [];
+    if (board) { clauses.push("board=?"); params.push(board); }
+    if (taskId) { clauses.push("task_id=?"); params.push(taskId); }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     return db.prepare(`SELECT id,board,task_id taskId,action,from_status fromStatus,to_status toStatus,
       title,body,assignee,priority,comment,status,result_status resultStatus,
       last_error lastError,created_at createdAt,updated_at updatedAt

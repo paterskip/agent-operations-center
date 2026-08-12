@@ -172,6 +172,9 @@ function processMove() {
       const transition = `${move.fromStatus}\u2192${move.toStatus}`;
 
       if (move.fromStatus === "triage" && move.toStatus === "todo") {
+        // `specify` to jedyna komenda, ktora realnie przenosi triage -> todo.
+        // Wczesniej dodawany byl tylko komentarz, wiec karta zostawala w triage.
+        runHermes(move.board, ["specify", move.taskId, "--author", "CEO Web"]);
         runHermes(move.board, ["comment", move.taskId, `CEO moved: ${transition}`, "--author", "CEO Web", "--max-len", "2000"]);
       } else if (move.fromStatus === "todo" && move.toStatus === "scheduled") {
         runHermes(move.board, ["schedule", move.taskId, "CEO scheduled via Kanban panel"]);
@@ -197,6 +200,11 @@ function processMove() {
       }
 
       const after = taskState(move.board, move.taskId);
+      // Fail-closed: jesli status faktycznie sie nie zmienil, to NIE jest sukces.
+      // Wczesniej broker raportowal 'done' mimo ze karta nie drgnela.
+      if (after.status === move.fromStatus && move.toStatus !== move.fromStatus) {
+        throw new Error(`Transition ${transition} did not change status (still '${after.status}')`);
+      }
       db.transaction(() => {
         db.prepare("UPDATE task_moves SET status='done', result_status=?, last_error=NULL, updated_at=? WHERE id=?")
           .run(after.status, ts, move.id);
