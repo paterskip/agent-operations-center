@@ -10,10 +10,8 @@ services:
       AOC_PUBLIC_URL: https://agents.paterski.com
       AOC_STATE_DB: /data/state/aoc.db
     volumes:
-      - /root/.hermes/kanban:/data/kanban
-      - /root/.hermes/kanban.db:/data/kanban.db
-      - /root/.hermes/kanban.db-wal:/data/kanban.db-wal
-      - /root/.hermes/kanban.db-shm:/data/kanban.db-shm
+      - /root/.hermes/kanban:/data/kanban:ro
+      - /root/.hermes/kanban.db:/data/kanban.db:ro
       - /var/lib/agent-operations-center:/data/state
     ports:
       - "127.0.0.1:3010:3000"

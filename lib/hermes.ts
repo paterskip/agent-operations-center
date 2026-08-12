@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { ActivityEvent, AgentSummary, BoardSummary, DashboardSnapshot, TaskCard } from "./types";
 
@@ -10,9 +11,35 @@ type BoardRecord = { slug: string; name: string; description?: string; icon?: st
 type AnyRow = Record<string, unknown>;
 
 function openReadOnly(dbPath: string) {
-  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
-  db.pragma("query_only = ON");
-  return db;
+  try {
+    const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    db.pragma("query_only = ON");
+    return db;
+  } catch (err) {
+    // Docker: the kanban mount is read-only and -wal/-shm are not mounted
+    // (SQLite deletes them when the last connection closes). A WAL-mode DB
+    // cannot be opened read-only there — copy the (broker-checkpointed) main
+    // file to the writable tmp dir and read the copy. Stale temp copies are
+    // swept on each fallback open.
+    if (err instanceof Error && /readonly/i.test(err.message)) {
+      const prefix = `aoc-db-${path.basename(dbPath)}-`;
+      const tmpDir = os.tmpdir();
+      try {
+        const cutoff = Date.now() - 3600_000;
+        for (const f of fs.readdirSync(tmpDir)) {
+          if (!f.startsWith(prefix)) continue;
+          const full = path.join(tmpDir, f);
+          try { if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full); } catch {}
+        }
+      } catch {}
+      const copyPath = path.join(tmpDir, `${prefix}${process.pid}-${Date.now()}.db`);
+      fs.copyFileSync(dbPath, copyPath);
+      const db = new Database(copyPath, { readonly: true, fileMustExist: true });
+      db.pragma("query_only = ON");
+      return db;
+    }
+    throw err;
+  }
 }
 
 export function discoverBoards(): BoardRecord[] {
