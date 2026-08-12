@@ -616,7 +616,7 @@ export default function Dashboard() {
               return <div className="scorecard-row" key={row.slug}>
                 <span className="scorecard-name" title={row.slug}>{row.name}</span>
                 <span className="scorecard-bar"><i style={{ width: `${Math.round((row.done30 / max) * 100)}%` }} /></span>
-                <span className="scorecard-nums"><b title="ukończone 7d/30d">{row.done7}/{row.done30}</b><em title="zablokowane 7d/30d">⚑ {row.blocked7}/{row.blocked30}</em>{row.rework30 > 0 && <em className="rework" title="zadania ukończone ponownie (rework)">↻ {row.rework30}</em>}<em title="w toku / ogółem">◉ {row.running}/{row.total}</em>{row.cost30 != null && <em className="cost" title={`${row.sessions30} sesji kanban · ${row.tokens30.toLocaleString("pl-PL")} tokenów (30 dni)`}>≈ ${row.cost30.toFixed(2)}</em>}</span>
+                <span className="scorecard-nums"><b title="ukończone 7d/30d">{row.done7}/{row.done30}</b><em title="zablokowane 7d/30d">⚑ {row.blocked7}/{row.blocked30}</em>{row.rework30 > 0 && <em className="rework" title="zadania ukończone ponownie (rework)">↻ {row.rework30}</em>}<em title="w toku / ogółem">◉ {row.running}/{row.total}</em>{row.cost30 != null && <em className="cost" title={`${row.sessions30} sesji kanban · ${row.tokens30.toLocaleString("pl-PL")} tokenów (30 dni)`}>{row.cost30 > 0 ? `≈ $${row.cost30.toFixed(2)}` : `${(row.tokens30 / 1e6).toFixed(1)}M tok`}</em>}</span>
               </div>;
             })}
           </div>
