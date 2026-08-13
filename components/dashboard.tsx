@@ -185,6 +185,7 @@ export default function Dashboard() {
   }, [view]);
 
   useEffect(() => {
+    if (view !== "overview") return;
     let active = true;
     const fetchTrends = () => {
       fetch("/api/trends", { cache: "no-store" })
@@ -195,7 +196,7 @@ export default function Dashboard() {
     fetchTrends();
     const timer = setInterval(fetchTrends, 5 * 60_000);
     return () => { active = false; clearInterval(timer); };
-  }, []);
+  }, [view]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
