@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ActivityEvent, AgentSummary, DashboardSnapshot, DecisionRecord, IdeaRecord, TaskCard } from "@/lib/types";
 import { applyTaskDeltas, mergeActivity, type ActivityEntry, type TaskDelta } from "@/lib/kanban-delta";
+import { decisionAllowed } from "@/lib/decision-policy";
 import { STATUSES } from "@/lib/types";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { ALLOWED_DROPS } from "@/lib/transitions";
@@ -805,13 +806,14 @@ export default function Dashboard() {
         <p>Akcja dotyczy tylko tej karty. PM decyduje, który agent podejmie dalszą pracę.</p>
         <textarea value={decisionComment} onChange={(ev) => setDecisionComment(ev.target.value)} maxLength={2000} rows={3} placeholder={selectedTask.status === "blocked" ? "Komentarz (opcjonalny)" : "Powód"} />
         <div className="decision-actions">
-          {/* Accept — available for statuses that need CEO approval to move forward */}
-          {["triage", "blocked", "scheduled"].includes(selectedTask.status) && <button className="approve" disabled={decisionBusy} onClick={() => void submitDecision("approve")}>{decisionBusy ? "…" : selectedTask.status === "triage" ? "Akceptuj → Todo" : selectedTask.status === "scheduled" ? "Akceptuj → Ready" : "Akceptuj i odblokuj"}</button>}
-          {/* Reject — available for all statuses where CEO can kill the task */}
-          {["triage", "todo", "scheduled", "blocked", "ready", "running"].includes(selectedTask.status) && <button className="reject" disabled={decisionBusy} onClick={() => void submitDecision("reject")}>Odrzuć</button>}
-          {/* Hold / Block — available for active statuses that can be frozen */}
-          {["triage", "todo", "scheduled", "ready", "running"].includes(selectedTask.status) && <button disabled={decisionBusy} onClick={() => void submitDecision("hold")}>Zablokuj</button>}
+          {/* Accept — tylko statusy, które CEO może odblokować (policy decision-policy.ts) */}
+          {decisionAllowed("approve", selectedTask.status) && <button className="approve" disabled={decisionBusy} onClick={() => void submitDecision("approve")}>{decisionBusy ? "…" : selectedTask.status === "scheduled" ? "Akceptuj → Ready" : "Akceptuj i odblokuj"}</button>}
+          {/* Reject — statusy, z których CEO może odrzucić kartę */}
+          {decisionAllowed("reject", selectedTask.status) && <button className="reject" disabled={decisionBusy} onClick={() => void submitDecision("reject")}>Odrzuć</button>}
+          {/* Hold / Block — statusy aktywne, które można zamrozić */}
+          {decisionAllowed("hold", selectedTask.status) && <button disabled={decisionBusy} onClick={() => void submitDecision("hold")}>Zablokuj</button>}
         </div>
+        {selectedTask.status === "triage" && <p className="decision-note">Zadanie w triage — specyfikuje je PM (komenda specify). CEO nie podejmuje tu decyzji.</p>}
         {selectedTask.status === "review" && <p className="decision-note">Status review wymaga natywnego workflow PM/reviewera — tu nie można go zatwierdzić.</p>}
         {selectedTask.status === "done" && <p className="decision-note">Zadanie jest już zakończone — decyzje CEO nie są potrzebne.</p>}
         {decisionMessage && <p className="decision-message">{decisionMessage}</p>}

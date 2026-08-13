@@ -7,6 +7,7 @@ describe("CEO decision policy", () => {
     expect(decisionAllowed("approve", "scheduled")).toBe(true);
     expect(decisionAllowed("approve", "review")).toBe(false);
     expect(decisionAllowed("approve", "done")).toBe(false);
+    expect(decisionAllowed("approve", "triage")).toBe(false); // regresja: UI pokazywał approve dla triage
   });
 
   it("never exposes assignment or forced dependency actions", () => {
