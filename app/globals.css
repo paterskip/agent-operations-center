@@ -157,3 +157,40 @@
 .sla-badge.warn{color:var(--amber);border-color:#725927;background:#2a1f0d}
 .sla-badge.overdue{color:var(--red);border-color:#7a2f2f;background:#2a151b}
 .scorecard-nums em.cost{color:#9db4d0;font-weight:600}
+
+/* ── Micro-interactions & motion ── */
+.mission-clock{font:600 12px ui-monospace,monospace;color:#7d8ea3;padding:4px 10px;border:1px solid rgba(125,142,163,.25);border-radius:8px;background:rgba(15,21,32,.5)}
+@keyframes cardArrive{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
+.task-card.draggable-task{animation:cardArrive .35s ease both}
+.task-card{transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease}
+.task-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px -12px rgba(0,0,0,.6)}
+@keyframes pulseDot{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.55)}50%{box-shadow:0 0 0 6px rgba(52,211,153,0)}}
+.status-dot.working{animation:pulseDot 1.6s ease infinite}
+@keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+.skeleton{background:linear-gradient(90deg,#131a27 25%,#1b2433 50%,#131a27 75%);background-size:800px 100%;animation:shimmer 1.4s infinite linear;border-radius:10px}
+.skeleton-metric{height:64px}.skeleton-card{height:86px;margin:8px 0}
+button:active, .btn:active{transform:scale(.97)}
+.palette-backdrop, .palette-panel{animation:cardArrive .18s ease both}
+
+/* ── Focus mode & density ── */
+body.focus-mode .activity-panel, body.focus-mode .sidebar, body.focus-mode .ceo-inbox{display:none}
+body.focus-mode .board-layout{grid-template-columns:1fr}
+body.density-compact .task-card{padding:8px 10px}
+body.density-compact .task-card h3{font-size:12px}
+body.density-compact .metric-grid article{padding:12px}
+
+/* ── Trendy: wykres + heatmapa ── */
+:root{--hm0:rgba(125,142,163,.14);--hm1:rgba(77,163,255,.35);--hm2:rgba(77,163,255,.65);--hm3:#4da3ff}
+.trend-chart{width:100%;height:auto;display:block}
+.trends-panel{padding:14px 0}
+.heatmap{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.heatmap-row{display:flex;align-items:center;gap:10px}
+.heatmap-label{display:flex;align-items:center;gap:8px;width:200px;min-width:200px;font-size:12px}
+.heatmap-label span{color:#dbe6f2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.heatmap-label em{font-style:normal;font-size:10px;color:#7d8ea3;background:rgba(125,142,163,.12);padding:1px 6px;border-radius:8px}
+.heatmap-cells{display:flex;gap:2px;overflow:hidden;flex:1}
+.hm-cell{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+.heatmap-empty{color:#7d8ea3;font-size:13px;margin:6px 0}
+.skeleton-screen{display:flex;flex-direction:column;gap:24px;width:100%;max-width:920px}
+.skeleton-screen .metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.skeleton-list{display:flex;flex-direction:column;gap:10px}

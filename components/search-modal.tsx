@@ -18,9 +18,10 @@ interface Props {
   board: string;
   onSelectBoard: (slug: string) => void;
   onSelectTask: (task: TaskCard) => void;
+  actions?: { label: string; icon: string; hint?: string; onRun: () => void }[];
 }
 
-export default function SearchModal({ open, onClose, data, board, onSelectBoard, onSelectTask }: Props) {
+export default function SearchModal({ open, onClose, data, board, onSelectBoard, onSelectTask, actions = [] }: Props) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -53,6 +54,17 @@ export default function SearchModal({ open, onClose, data, board, onSelectBoard,
           <kbd>Esc</kbd>
         </div>
         <div className="search-results">
+          {!lower && actions.length > 0 && (
+            <section>
+              <h4>Akcje</h4>
+              {actions.map((a) => (
+                <button key={a.label} className="search-result" onClick={() => { a.onRun(); onClose(); }}>
+                  <span className="result-icon">{a.icon}</span>
+                  <div><strong>{a.label}</strong>{a.hint && <small>{a.hint}</small>}</div>
+                </button>
+              ))}
+            </section>
+          )}
           {boardResults.length > 0 && (
             <section>
               <h4>Boardy</h4>

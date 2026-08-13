@@ -228,7 +228,9 @@ const BACKUP_MS = 5 * 60 * 1000; // 5 minutes
 const BACKUP_KEEP = 24; // keep last 24 copies (~2 hours)
 
 function backupKanban() {
-  const stampFile = "/tmp/aoc-last-backup";
+  // NOTE: systemd unit has PrivateTmp=true, so /tmp is ephemeral — the stamp
+  // must live somewhere persistent (next to the state DB), not /tmp.
+  const stampFile = path.join(path.dirname(process.env.AOC_STATE_DB || "/var/lib/agent-operations-center/aoc.db"), ".aoc-last-backup");
   const nowMs = Date.now();
   try {
     const lastMs = Number(fs.readFileSync(stampFile, "utf8").trim());

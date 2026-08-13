@@ -10,6 +10,11 @@ import SearchModal from "./search-modal";
 import { KanbanColumn } from "./kanban-column";
 import SecurityPanel from "./security-panel";
 import { copyText } from "@/lib/clipboard";
+import { AnimatedNumber } from "./AnimatedNumber";
+import { MissionClock } from "./MissionClock";
+import { ThroughputChart } from "./ThroughputChart";
+import { ActivityHeatmap } from "./ActivityHeatmap";
+import type { TrendPoint, AgentActivityCell } from "@/lib/trends";
 
 const roleIcon: Record<string, string> = { pm: "◆", coder: "⌘", "coder-parallel": "⌘", designer: "✦", tester: "✓", reviewer: "◇" };
 const statusLabel: Record<string, string> = { triage: "Triage", todo: "Todo", scheduled: "Scheduled", ready: "Ready", running: "In progress", blocked: "Blocked", review: "Review", done: "Done" };
@@ -63,6 +68,18 @@ export default function Dashboard() {
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
   const [ideaMessage, setIdeaMessage] = useState("");
   const [scorecard, setScorecard] = useState<{ slug: string; name: string; done7: number; done30: number; blocked7: number; blocked30: number; rework30: number; running: number; total: number; sessions30: number; tokens30: number; cost30: number | null }[] | null>(null);
+  const [trends, setTrends] = useState<{ throughput: TrendPoint[]; agentActivity: AgentActivityCell[] } | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
+  const [dense, setDense] = useState(false);
+
+  useEffect(() => {
+    document.body.classList.toggle("focus-mode", focusMode);
+    return () => document.body.classList.remove("focus-mode");
+  }, [focusMode]);
+  useEffect(() => {
+    document.body.classList.toggle("density-compact", dense);
+    return () => document.body.classList.remove("density-compact");
+  }, [dense]);
 
   /* Live-derived views: SSE deltas override the snapshot; full load() resyncs. */
   const tasks = liveTasks ?? data?.tasks ?? [];
@@ -168,6 +185,19 @@ export default function Dashboard() {
   }, [view]);
 
   useEffect(() => {
+    let active = true;
+    const fetchTrends = () => {
+      fetch("/api/trends", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (active && j?.throughput) setTrends(j); })
+        .catch(() => {});
+    };
+    fetchTrends();
+    const timer = setInterval(fetchTrends, 5 * 60_000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const slug = params.get("board") || undefined;
     const t = setTimeout(() => { void load(slug); void loadIdeas(); }, 0);
@@ -236,10 +266,24 @@ export default function Dashboard() {
       if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setView((v) => v === "board" ? "overview" : "board"); return; }
       if (e.key === "Escape") { if (creatorOpen) { setCreatorOpen(false); return; } if (selectedTask) { setSelectedTask(null); return; } }
       if (e.key === "?" && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") { setSearchOpen(true); return; }
+      // J/K — nawigacja po kartach decyzji (Vim-style) w overview
+      if (view === "overview" && (e.key === "j" || e.key === "k" || e.key === "J" || e.key === "K") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const tag = document.activeElement?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        if (searchOpen || creatorOpen || selectedTask) return;
+        const cards = [...document.querySelectorAll<HTMLElement>(".task-card.compact")];
+        if (!cards.length) return;
+        const idx = cards.findIndex((c) => c === document.activeElement);
+        const next = e.key.toLowerCase() === "j" ? Math.min(idx + 1, cards.length - 1) : Math.max(idx - 1, 0);
+        cards[next]?.focus();
+        cards[next]?.scrollIntoView({ block: "nearest" });
+        e.preventDefault();
+        return;
+      }
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedTask, creatorOpen]);
+  }, [selectedTask, creatorOpen, searchOpen, view]);
 
   /* Move focus into the task drawer on open, restore it on close (dialog a11y) */
   useEffect(() => {
@@ -527,11 +571,17 @@ export default function Dashboard() {
 
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
-  if (loading) return <main className="center-state"><div className="loader" /><p>Łączenie z centrum operacyjnym…</p></main>;
+  if (loading) return <main className="center-state skeleton-screen"><div className="metric-grid"><div className="skeleton skeleton-metric" /><div className="skeleton skeleton-metric" /><div className="skeleton skeleton-metric" /><div className="skeleton skeleton-metric" /></div><div className="skeleton-list"><div className="skeleton skeleton-card" /><div className="skeleton skeleton-card" /><div className="skeleton skeleton-card" /></div></main>;
   if (error || !data) return <main className="center-state"><div className="error-mark">!</div><h1>Brak danych</h1><p>{error}</p><button onClick={() => load(board)}>Spróbuj ponownie</button></main>;
 
   return <div className="app-shell">
-    <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} data={data} board={board} onSelectBoard={selectBoard} onSelectTask={setSelectedTask} />
+    <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} data={data} board={board} onSelectBoard={selectBoard} onSelectTask={setSelectedTask} actions={[
+      { label: "Przejdź do Kanbanu", icon: "⌁", hint: "Board", onRun: () => { pendingScrollRef.current = "board"; setView("board"); } },
+      { label: "Nowe zadanie", icon: "＋", hint: "Utwórz", onRun: () => { setCreatorBoard(board); setCreatorOpen(true); } },
+      { label: focusMode ? "Wyłącz tryb focus" : "Włącz tryb focus", icon: "◎", hint: "Pełny ekran boardu", onRun: () => setFocusMode((f) => !f) },
+      { label: dense ? "Gęstość: normalna" : "Gęstość: kompaktowa", icon: "▤", hint: "Zagęść widok", onRun: () => setDense((d) => !d) },
+      { label: "Audyt (dziennik)", icon: "⚿", hint: "Bezpieczeństwo", onRun: () => setView("security") },
+    ]} />
 
     <div className="toast-container" aria-live="polite">
       {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}>{toast.text}</div>)}
@@ -585,13 +635,19 @@ export default function Dashboard() {
 
     {/* --- OVERVIEW --- */}
     {view === "overview" && <main className="main-content" id="overview">
-      <header className="topbar"><div><p className="eyebrow">AGENT OPERATIONS CENTER</p><h1>Overview</h1></div><div className="top-actions"><span className="shortcut-hint"><kbd>⌘K</kbd> search — <kbd>⌘B</kbd> board</span></div></header>
+      <header className="topbar"><div><p className="eyebrow">AGENT OPERATIONS CENTER</p><h1>Overview</h1></div><div className="top-actions"><MissionClock /><span className="shortcut-hint"><kbd>⌘K</kbd> search — <kbd>⌘B</kbd> board</span></div></header>
       <section className="metric-grid" aria-label="Kluczowe metryki">
-        <article><span>Aktywni agenci</span><strong>{active}<small> / {agents.length}</small></strong><i className="metric-line blue" /></article>
-        <article><span>Wymagają decyzji</span><strong>{pendingDecisions}</strong><i className="metric-line red" /></article>
-        <article><span>Zadania w toku</span><strong>{data.boards.reduce((s, b) => s + (b.counts.running || 0), 0)}</strong><i className="metric-line violet" /></article>
-        <article><span>Ukończone</span><strong>{data.boards.reduce((s, b) => s + (b.counts.done || 0), 0)}</strong><i className="metric-line green" /></article>
+        <article><span>Aktywni agenci</span><strong><AnimatedNumber value={active} /><small> / {agents.length}</small></strong><i className="metric-line blue" /></article>
+        <article><span>Wymagają decyzji</span><strong><AnimatedNumber value={pendingDecisions} /></strong><i className="metric-line red" /></article>
+        <article><span>Zadania w toku</span><strong><AnimatedNumber value={data.boards.reduce((s, b) => s + (b.counts.running || 0), 0)} /></strong><i className="metric-line violet" /></article>
+        <article><span>Ukończone</span><strong><AnimatedNumber value={data.boards.reduce((s, b) => s + (b.counts.done || 0), 0)} /></strong><i className="metric-line green" /></article>
       </section>
+      {trends && <section className="trends-panel" aria-label="Trendy">
+        <div className="section-head"><div><p className="eyebrow">TRENDY</p><h2>Przepustowość — 30 dni</h2></div><span className="updated">odświeżanie co 5 min</span></div>
+        <ThroughputChart data={trends.throughput} />
+        <div className="section-head" style={{ marginTop: 18 }}><div><p className="eyebrow">AKTYWNOŚĆ</p><h2>Agentów — 12 tygodni</h2></div></div>
+        <ActivityHeatmap data={trends.agentActivity} agents={agents} />
+      </section>}
       <section className="quick-actions">
         <button className="action-btn primary" onClick={() => { pendingScrollRef.current = "board"; setView("board"); }}>Przejdź do Kanbanu</button>
         <button className="action-btn" onClick={() => { pendingScrollRef.current = "inbox"; setView("board"); }}>CEO Inbox</button>
@@ -628,10 +684,10 @@ export default function Dashboard() {
       </header>
 
       <section className="metric-grid" aria-label="Podsumowanie">
-        <article><span>Aktywni agenci</span><strong>{active}<small> / {agents.length}</small></strong><i className="metric-line blue" /></article>
-        <article><span>Zadania w toku</span><strong>{data.boards.reduce((s, b) => s + (b.counts.running || 0), 0)}</strong><i className="metric-line violet" /></article>
-        <article><span>Wymaga uwagi</span><strong>{blockedCount}</strong><i className="metric-line red" /></article>
-        <article><span>Ukończone</span><strong>{data.boards.reduce((s, b) => s + (b.counts.done || 0), 0)}</strong><i className="metric-line green" /></article>
+        <article><span>Aktywni agenci</span><strong><AnimatedNumber value={active} /><small> / {agents.length}</small></strong><i className="metric-line blue" /></article>
+        <article><span>Zadania w toku</span><strong><AnimatedNumber value={data.boards.reduce((s, b) => s + (b.counts.running || 0), 0)} /></strong><i className="metric-line violet" /></article>
+        <article><span>Wymaga uwagi</span><strong><AnimatedNumber value={blockedCount} /></strong><i className="metric-line red" /></article>
+        <article><span>Ukończone</span><strong><AnimatedNumber value={data.boards.reduce((s, b) => s + (b.counts.done || 0), 0)} /></strong><i className="metric-line green" /></article>
       </section>
 
       <section className="project-strip" aria-label="Projekty">
