@@ -13,6 +13,7 @@ services:
       - /root/.hermes/kanban:/data/kanban:ro
       - /root/.hermes/kanban.db:/data/kanban.db:ro
       - /var/lib/agent-operations-center:/data/state
+      - ./deploy/authelia/users_database.yml:/data/authelia/users_database.yml:rw
     ports:
       - "127.0.0.1:3010:3000"
     tmpfs:
