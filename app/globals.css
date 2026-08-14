@@ -194,3 +194,9 @@ body.density-compact .metric-grid article{padding:12px}
 .skeleton-screen{display:flex;flex-direction:column;gap:24px;width:100%;max-width:920px}
 .skeleton-screen .metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .skeleton-list{display:flex;flex-direction:column;gap:10px}
+
+/* ── Task body: cel + zwijany opis ── */
+.task-goal{font-size:14px;line-height:1.55;color:#dbe6f2;margin:0 0 10px}
+.task-body-toggle{background:none;border:none;color:#4da3ff;font-size:12px;font-weight:600;cursor:pointer;padding:0;margin-bottom:10px}
+.task-body-toggle:hover{text-decoration:underline}
+.task-body-full{white-space:pre-wrap;font:12px/1.6 ui-monospace,monospace;color:#9db4d0;background:rgba(125,142,163,.08);border:1px solid rgba(125,142,163,.15);border-radius:8px;padding:12px;max-height:320px;overflow:auto;margin:0}

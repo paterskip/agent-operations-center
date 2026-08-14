@@ -13,6 +13,7 @@ import SecurityPanel from "./security-panel";
 import { copyText } from "@/lib/clipboard";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { MissionClock } from "./MissionClock";
+import { TaskBody } from "./TaskBody";
 import { ThroughputChart } from "./ThroughputChart";
 import { ActivityHeatmap } from "./ActivityHeatmap";
 import type { TrendPoint, AgentActivityCell } from "@/lib/trends";
@@ -800,7 +801,7 @@ export default function Dashboard() {
     {selectedTask && <div className="drawer-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) setSelectedTask(null); }}><aside className="task-drawer" role="dialog" aria-modal="true" aria-labelledby="task-title" ref={drawerRef} tabIndex={-1}>
       <header><div><button type="button" className="task-id-copy" title={`Kliknij, aby skopiować ${selectedTask.id}`} aria-label={`Kopiuj identyfikator zadania ${selectedTask.id}`} onClick={() => { void copyText(selectedTask.id).then((ok) => addToast(ok ? `Skopiowano ${selectedTask.id}` : `Nie udało się skopiować ${selectedTask.id}`, ok ? "success" : "warning")); }}><code>{selectedTask.id}</code><i aria-hidden="true">⧉</i></button><span className={`status-badge ${selectedTask.status}`} title={statusHelp[selectedTask.status] || ""}>{selectedTask.status}</span></div><button aria-label="Zamknij" onClick={() => setSelectedTask(null)}>×</button></header>
       <h2 id="task-title">{selectedTask.title}</h2>
-      <p className="task-body">{selectedTask.body || "Brak opisu."}</p>
+      <TaskBody body={selectedTask.body} />
 
       <section className="decision-box"><h3>Decyzja CEO</h3>
         <p>Akcja dotyczy tylko tej karty. PM decyduje, który agent podejmie dalszą pracę.</p>
