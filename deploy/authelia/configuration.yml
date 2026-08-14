@@ -20,9 +20,9 @@ totp:
   disable_reuse_security_policy: false
 
 webauthn:
-  disable: false
+  disable: true
   display_name: 'Agent Operations Center'
-  enable_passkey_login: true
+  enable_passkey_login: false
 
 authentication_backend:
   file:
@@ -32,8 +32,8 @@ authentication_backend:
       algorithm: 'argon2'
       argon2:
         variant: 'argon2id'
-        iterations: 3
-        memory: 65536
+        iterations: 5
+        memory: 131072
         parallelism: 4
         key_length: 32
         salt_length: 16

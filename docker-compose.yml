@@ -27,7 +27,7 @@ services:
       start_period: 15s
 
   authelia:
-    image: authelia/authelia:4.39.10
+    image: authelia/authelia:4.39.20
     restart: unless-stopped
     environment:
       AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /secrets/jwt
