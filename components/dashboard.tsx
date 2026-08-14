@@ -10,6 +10,7 @@ import { ALLOWED_DROPS } from "@/lib/transitions";
 import SearchModal from "./search-modal";
 import { KanbanColumn } from "./kanban-column";
 import SecurityPanel from "./security-panel";
+import SettingsPanel from "./settings-panel";
 import { copyText } from "@/lib/clipboard";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { MissionClock } from "./MissionClock";
@@ -46,7 +47,7 @@ const eventLabels: Record<string, string> = { created: "utworzono zadanie", clai
 
 function eventSummary(event: ActivityEvent) { return eventLabels[event.kind] || event.kind.replaceAll("_", " "); }
 
-type ViewMode = "overview" | "board" | "security";
+type ViewMode = "overview" | "board" | "security" | "settings";
 type ToastItem = { id: number; text: string; kind: "info" | "success" | "warning" };
 
 const SELECTED_BOARDS_KEY = "aoc_project";
@@ -625,6 +626,7 @@ export default function Dashboard() {
         <button className="nav-item" onClick={() => { if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
         <button className="nav-item" onClick={() => setSearchOpen(true)}><span>⌕</span> Search <kbd>⌘K</kbd></button>
         <button className={`nav-item ${view === "security" ? "active" : ""}`} onClick={() => setView("security")}><span>⚿</span> Audyt</button>
+        <button className={`nav-item ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>⚙</span> Ustawienia</button>
       </nav>
       <div className="sidebar-foot">
         <div className="sidebar-activity">
@@ -679,6 +681,8 @@ export default function Dashboard() {
 
     {/* --- BOARD --- */}
     {view === "security" && <main className="main-content" id="security"><SecurityPanel /></main>}
+
+    {view === "settings" && <main className="main-content" id="settings"><SettingsPanel /></main>}
 
     {view === "board" && <main className="main-content" id="board">
       <header className="topbar">

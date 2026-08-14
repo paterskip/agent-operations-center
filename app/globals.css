@@ -200,3 +200,15 @@ body.density-compact .metric-grid article{padding:12px}
 .task-body-toggle{background:none;border:none;color:#4da3ff;font-size:12px;font-weight:600;cursor:pointer;padding:0;margin-bottom:10px}
 .task-body-toggle:hover{text-decoration:underline}
 .task-body-full{white-space:pre-wrap;font:12px/1.6 ui-monospace,monospace;color:#9db4d0;background:rgba(125,142,163,.08);border:1px solid rgba(125,142,163,.15);border-radius:8px;padding:12px;max-height:320px;overflow:auto;margin:0}
+
+/* ── Settings: zmiana hasła ── */
+.settings-panel{max-width:520px}
+.settings-card{background:rgba(125,142,163,.06);border:1px solid rgba(125,142,163,.15);border-radius:12px;padding:22px}
+.settings-card h3{margin:0 0 6px;font-size:16px;color:#e6edf6}
+.settings-hint{color:#7d8ea3;font-size:12.5px;line-height:1.5;margin:0 0 18px}
+.settings-form{display:flex;flex-direction:column;gap:14px}
+.settings-form label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#9db4d0}
+.settings-form input{background:#0b1018;border:1px solid rgba(125,142,163,.25);border-radius:8px;padding:10px 12px;color:#e6edf6;font-size:14px}
+.settings-form input:focus{outline:none;border-color:#4da3ff}
+.settings-ok{color:#34d399;font-size:13px;margin:0}
+.settings-err{color:#f87171;font-size:13px;margin:0}
