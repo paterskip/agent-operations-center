@@ -58,7 +58,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result, { status: 202, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    const msg = error instanceof Error ? error.message : "Nie udało się zapisać komentarza";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+      return NextResponse.json({ error: "Ta karta ma już oczekujący komentarz lub ruch" }, { status: 409 });
+    }
+    return NextResponse.json({ error: "Nie udało się zapisać komentarza" }, { status: 500 });
   }
 }

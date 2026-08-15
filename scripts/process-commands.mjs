@@ -318,7 +318,13 @@ export function main() {
   const db = initDb();
   try {
     backupKanban();
-    const hadWork = runOne(db) || processDecision(db) || processMove(db);
+    let hadWork = false;
+    let iterations = 0;
+    while (iterations++ < 100) {
+      const worked = runOne(db) || processDecision(db) || processMove(db);
+      if (!worked) break;
+      hadWork = true;
+    }
     if (hadWork) checkpointAll();
   } finally {
     db.close();

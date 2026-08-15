@@ -1,8 +1,41 @@
 import Database from "better-sqlite3";
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
 const statePath = process.env.AOC_STATE_DB || "/data/state/aoc.db";
+
+let isBrokerRunning = false;
+
+/**
+ * Pobudza brokera Hermesa natychmiast po zapisaniu zadania/pomysłu/decyzji (model Event-Driven).
+ * Działa asynchronicznie w tle i nie blokuje odpowiedzi HTTP do przeglądarki.
+ */
+export function triggerBroker() {
+  if (isBrokerRunning || process.env.NODE_ENV === "test") return;
+  isBrokerRunning = true;
+
+  const scriptPath = path.join(process.cwd(), "scripts", "process-commands.mjs");
+  try {
+    execFile(
+      process.execPath,
+      [scriptPath],
+      {
+        timeout: 45_000,
+        env: {
+          ...process.env,
+          PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
+          HOME: process.env.HOME || "/root",
+        },
+      },
+      () => {
+        isBrokerRunning = false;
+      }
+    );
+  } catch {
+    isBrokerRunning = false;
+  }
+}
 
 export type Idea = {
   id: string; title: string; description: string; project: string; priority: number;
@@ -74,6 +107,7 @@ export function enqueueDecision(input: { board: string; taskId: string; action: 
     const id = `decision_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
     db.prepare("INSERT INTO task_decisions(id,board,task_id,action,from_status,to_status,comment,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'queued',?,?)")
       .run(id, input.board, input.taskId, input.action, input.fromStatus, input.toStatus, input.comment, now, now);
+    triggerBroker();
     return { id, status: "queued" };
   } finally { db.close(); }
 }
@@ -111,6 +145,9 @@ export function createIdea(input: Omit<Idea, "id" | "status" | "hermesTaskId" | 
       if (input.mode === "analysis") db.prepare("INSERT INTO commands(kind,idea_id,status,created_at,updated_at) VALUES('create_analysis',?,'pending',?,?)").run(id, now, now);
     });
     transaction();
+    if (input.mode === "analysis") {
+      triggerBroker();
+    }
     return { id, status };
   } finally { db.close(); }
 }
@@ -159,6 +196,7 @@ export function enqueueMove(input: {
       .run(id, input.board, input.taskId, input.action, input.fromStatus || null, input.toStatus || null,
         input.title || null, input.body || null, input.assignee || null, input.priority ?? null,
         input.comment || "", now, now);
+    triggerBroker();
     return { id, status: "queued" };
   } finally { db.close(); }
 }
