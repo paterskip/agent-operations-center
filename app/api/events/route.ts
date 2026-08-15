@@ -35,9 +35,11 @@ export function GET(request: Request) {
             controller.enqueue(encoder.encode(`: heartbeat\n\n`));
           }
         } catch {
-          controller.enqueue(encoder.encode(
-            `event: source-error\ndata: ${JSON.stringify({ message: "Hermes data source unavailable" })}\n\n`
-          ));
+          try {
+            controller.enqueue(encoder.encode(
+              `event: source-error\ndata: ${JSON.stringify({ message: "Hermes data source unavailable" })}\n\n`
+            ));
+          } catch { /* controller already closed */ }
         }
       }, 2500);
 

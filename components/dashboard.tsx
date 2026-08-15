@@ -540,14 +540,12 @@ export default function Dashboard() {
     if (!toStatus || toStatus === task.status) return;
     if (!(ALLOWED_DROP_TARGETS[task.status] || []).includes(toStatus)) return;
 
-    // Optimistic update
-    setData((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, status: toStatus as TaskCard["status"] } : t)),
-      };
-    });
+    // Optimistic update — liveTasks is the rendered source of truth
+    setLiveTasks((prev) =>
+      (prev ?? dataRef.current?.tasks ?? []).map((t) =>
+        t.id === taskId ? { ...t, status: toStatus as TaskCard["status"] } : t
+      )
+    );
 
     void moveTask(taskId, task.status, toStatus);
   }
@@ -573,7 +571,12 @@ export default function Dashboard() {
   const blockedCount = data?.boards.reduce((s, b) => s + (b.counts.blocked || 0), 0) || 0;
   const pendingDecisions = data?.boards.reduce((s, b) => s + (b.counts.blocked || 0) + (b.counts.scheduled || 0), 0) || 0;
 
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   if (loading) return <main className="center-state skeleton-screen"><div className="metric-grid"><div className="skeleton skeleton-metric" /><div className="skeleton skeleton-metric" /><div className="skeleton skeleton-metric" /><div className="skeleton skeleton-metric" /></div><div className="skeleton-list"><div className="skeleton skeleton-card" /><div className="skeleton skeleton-card" /><div className="skeleton skeleton-card" /></div></main>;
   if (error || !data) return <main className="center-state"><div className="error-mark">!</div><h1>Brak danych</h1><p>{error}</p><button onClick={() => load(board)}>Spróbuj ponownie</button></main>;

@@ -12,7 +12,7 @@ const GOAL_HEADINGS = /rozwiązanie|cel\b|goal|zadanie|task|rezultat|outcome|do 
 /** Zwraca pierwszą niepustą, sensowną linię sekcji (bez znaczników listy). */
 function firstLine(lines: string[]): string {
   for (const line of lines) {
-    const t = line.replace(/^[-*•\d.)\s]+/, "").trim();
+    const t = line.replace(/^[-*•)\s]+/, "").trim();
     if (t) return t;
   }
   return "";

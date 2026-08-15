@@ -16,11 +16,14 @@ function phc(salt: Buffer, hash: Buffer): string {
 }
 
 export async function POST(request: Request) {
+  const expectedOrigin = process.env.AOC_PUBLIC_URL || "https://agents.paterski.com";
+  if (request.headers.get("origin") !== expectedOrigin) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+
   let body: { current?: string; next?: string } = {};
   try { body = await request.json(); } catch { /* 400 poniżej */ }
 
   const { current, next } = body;
-  if (!current || !next || typeof next !== "string" || next.length < 12) {
+  if (!current || typeof current !== "string" || !next || typeof next !== "string" || next.length < 12) {
     return NextResponse.json({ error: "Nowe hasło musi mieć co najmniej 12 znaków." }, { status: 400 });
   }
 
@@ -28,7 +31,7 @@ export async function POST(request: Request) {
   try { txt = fs.readFileSync(USERS_DB, "utf8"); }
   catch { return NextResponse.json({ error: "Brak dostępu do magazynu haseł." }, { status: 500 }); }
 
-  const m = txt.match(/password: '([^']+)'/);
+  const m = txt.match(/password: ['"]([^'"]+)['"]/);
   if (!m) return NextResponse.json({ error: "Nie znaleziono wpisu hasła." }, { status: 500 });
   const storedHash = m[1];
 
