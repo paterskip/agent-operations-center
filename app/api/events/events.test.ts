@@ -1,10 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import type { AgentLiveStatus, TaskLiveDelta } from "@/lib/hermes";
+import type { ActivityEntry } from "@/lib/kanban-delta";
 
 // Mock the hermes data source so we control cursor/activity/agents/deltas
 const mockCursor = vi.hoisted(() => ({ value: "board1:0", throwOnTick: false }));
-const mockAgents = vi.hoisted(() => ({ value: [] as any[] }));
-const mockDeltas = vi.hoisted(() => ({ value: [] as any[] }));
-const mockEntries = vi.hoisted(() => ({ value: [] as any[] }));
+const mockAgents = vi.hoisted(() => ({ value: [] as AgentLiveStatus[] }));
+const mockDeltas = vi.hoisted(() => ({ value: [] as TaskLiveDelta[] }));
+const mockEntries = vi.hoisted(() => ({ value: [] as ActivityEntry[] }));
 const mockClassify = vi.hoisted(() => ({ value: "none" }));
 
 vi.mock("@/lib/hermes", () => ({
@@ -95,7 +97,7 @@ describe("GET /api/events — SSE framing", () => {
 
     // Change cursor + classify as presence
     mockCursor.value = "board1:99";
-    mockEntries.value = [{ kind: "heartbeat", id: "e1", board: "board1", taskTitle: "t", assignee: null, createdAt: 0 }];
+    mockEntries.value = [{ id: 1, kind: "heartbeat", board: "board1", taskId: "e1", taskTitle: "t", assignee: null, createdAt: 0 }];
     mockClassify.value = "presence";
     mockAgents.value = [{ slug: "pm", name: "PM", status: "idle", currentTask: null, currentBoard: null, lastHeartbeatAt: null }];
 
@@ -124,7 +126,7 @@ describe("GET /api/events — SSE framing", () => {
     }
 
     mockCursor.value = "board1:100";
-    mockEntries.value = [{ kind: "completed", id: "e2", board: "board1", taskTitle: "Zadanie X", assignee: "pm", createdAt: 0 }];
+    mockEntries.value = [{ id: 2, kind: "completed", board: "board1", taskId: "e2", taskTitle: "Zadanie X", assignee: "pm", createdAt: 0 }];
     mockClassify.value = "work";
     mockDeltas.value = [{ id: "TASK-1", status: "done", assignee: "pm", board: "board1", lastHeartbeatAt: null }];
 

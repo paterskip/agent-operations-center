@@ -63,7 +63,7 @@ describe("runOne — idea → hermes command", () => {
   });
 
   it("returns false when no pending commands", () => {
-    const exec = (_b: string, _a: string[]) => { throw new Error("should not call"); };
+    const exec = () => { throw new Error("should not call"); };
     expect(runOne(db, exec)).toBe(false);
   });
 
@@ -72,7 +72,7 @@ describe("runOne — idea → hermes command", () => {
     db.prepare("INSERT INTO commands(kind, idea_id, created_at, updated_at) VALUES(?,?,?,?)")
       .run("hermes-create", ideaId, now(), now());
 
-    const exec = (_b: string, _a: string[]) => { throw new Error("hermes crashed"); };
+    const exec = () => { throw new Error("hermes crashed"); };
     expect(runOne(db, exec)).toBe(true);
 
     const cmd = db.prepare("SELECT status, attempts FROM commands WHERE idea_id=?").get(ideaId) as { status: string; attempts: number } | undefined;
@@ -89,7 +89,7 @@ describe("runOne — idea → hermes command", () => {
     db.prepare("INSERT INTO commands(kind, idea_id, attempts, created_at, updated_at) VALUES(?,?,?,?,?)")
       .run("hermes-create", ideaId, 2, now(), now());
 
-    const exec = (_b: string, _a: string[]) => { throw new Error("always crashes"); };
+    const exec = () => { throw new Error("always crashes"); };
     runOne(db, exec);
 
     const cmd = db.prepare("SELECT status, attempts FROM commands WHERE idea_id=?").get(ideaId) as { status: string; attempts: number } | undefined;
@@ -102,7 +102,7 @@ describe("runOne — idea → hermes command", () => {
     db.prepare("INSERT INTO commands(kind, idea_id, created_at, updated_at) VALUES(?,?,?,?)")
       .run("hermes-create", "nonexistent-idea-id", now(), now());
 
-    const exec = (_b: string, _a: string[]) => { throw new Error("should not call"); };
+    const exec = () => { throw new Error("should not call"); };
     expect(runOne(db, exec)).toBe(true);
     db.pragma("foreign_keys = ON");
 
@@ -211,7 +211,7 @@ describe("processDecision — decision actions", () => {
   });
 
   it("returns false when no queued decisions", () => {
-    const fakeExec = (_b: string, _a: string[]) => { throw new Error("noop"); };
+    const fakeExec = () => { throw new Error("noop"); };
     expect(processDecision(db, fakeExec)).toBe(false);
   });
 });
@@ -298,7 +298,7 @@ describe("processMove — transitions", () => {
   });
 
   it("returns false when no queued moves", () => {
-    const exec = (_b: string, _a: string[]) => { throw new Error("noop"); };
+    const exec = () => { throw new Error("noop"); };
     expect(processMove(db, exec)).toBe(false);
   });
 
