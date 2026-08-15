@@ -88,7 +88,7 @@ export function runOne(db, exec = defaultExec) {
       `Projekt docelowy: ${idea.project}`,
       `Pomysł CEO: ${idea.description}`,
       "Przygotuj analizę wartości, kosztu, ryzyka i rekomendację. Nie wdrażaj kodu.",
-      "Dekompozycja: rozdziel architekturę/API dla Backend Engineera (coder-backend) oraz interfejs/UX dla Frontend Engineera (coder-frontend) ze wspólnym kontraktem typów.",
+      "Dekompozycja: rozdziel architekturę/API dla Backend Engineera (coder-backend) oraz interfejs/UX dla Frontend Engineera (coder-frontend) ze wspólnym kontraktem typów. W przypadku wrażliwych obszarów (Auth, dane, API, uprawnienia) dodaj zadanie inspekcji dla Security Engineera (security).",
       "Jeśli potrzebny jest research, utwórz osobną kartę dla reviewera i odnotuj jej ID.",
       "Po analizie zablokuj kartę jako needs_input i poproś CEO o decyzję."
     ].join("\n\n");
@@ -291,6 +291,8 @@ export function checkpointAll(opts = {}) {
       "/root/.hermes/profiles/coder-parallel/state.db",
       "/root/.hermes/profiles/designer/state.db",
       "/root/.hermes/profiles/tester/state.db",
+      "/root/.hermes/profiles/security/state.db",
+      "/root/.hermes/profiles/sec/state.db",
     ];
     if (fs.existsSync(boardsDir)) {
       for (const slug of fs.readdirSync(boardsDir)) {

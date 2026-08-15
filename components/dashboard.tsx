@@ -32,6 +32,8 @@ const roleIcon: Record<string, string> = {
   designer: "✦",
   tester: "✓",
   reviewer: "◇",
+  security: "⚿",
+  sec: "⚿",
   default: "◈",
 };
 const roleName: Record<string, string> = {
@@ -43,6 +45,8 @@ const roleName: Record<string, string> = {
   designer: "Product Designer",
   tester: "QA Automation Engineer",
   reviewer: "Code Reviewer & Gate",
+  security: "Security & AppSec Engineer",
+  sec: "Security & AppSec Engineer",
   default: "Operations Specialist",
 };
 const statusLabel: Record<string, string> = { triage: "Triage", todo: "Todo", scheduled: "Scheduled", ready: "Ready", running: "In progress", blocked: "Blocked", review: "Review", done: "Done" };

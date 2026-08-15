@@ -106,13 +106,15 @@ function readTasks(board: BoardRecord): TaskCard[] {
 
 const fallbackNames: Record<string, string> = {
   pm: "Product Manager",
-  coder: "Fullstack Engineer",
   "coder-backend": "Backend Engineer",
   "coder-frontend": "Frontend Engineer",
+  coder: "Fullstack Engineer",
   "coder-parallel": "Parallel Execution Worker",
   designer: "Product Designer",
   tester: "QA Automation Engineer",
   reviewer: "Code Reviewer & Gate",
+  security: "Security & AppSec Engineer",
+  sec: "Security & AppSec Engineer",
   default: "Operations Specialist",
 };
 
@@ -125,12 +127,14 @@ const fallbackDescriptions: Record<string, string> = {
   designer: "UI/UX design systems & component architecture",
   tester: "Automated regression, integration & quality assurance",
   reviewer: "Security inspection, code review & quality gates",
+  security: "AppSec audits, vulnerability assessment, CVE tracking & threat modeling",
+  sec: "AppSec audits, vulnerability assessment, CVE tracking & threat modeling",
   default: "General task execution & operations",
 };
 
 function profileMeta(): Map<string, { name: string; description: string }> {
   const profiles = new Map<string, { name: string; description: string }>();
-  for (const slug of (process.env.AOC_AGENTS || "pm,coder-backend,coder-frontend,coder,coder-parallel,designer,tester,reviewer").split(",").map((item) => item.trim()).filter(Boolean)) {
+  for (const slug of (process.env.AOC_AGENTS || "pm,coder-backend,coder-frontend,coder,coder-parallel,designer,tester,reviewer,security").split(",").map((item) => item.trim()).filter(Boolean)) {
     profiles.set(slug, {
       name: fallbackNames[slug] || slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
       description: fallbackDescriptions[slug] || "Hermes operations specialist",
