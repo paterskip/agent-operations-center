@@ -42,7 +42,11 @@ export async function POST(request: Request) {
   const raw = await argon2.hash(next, { ...PARAMS, salt, raw: true });
   const newHash = phc(salt, Buffer.from(raw));
 
-  // zapis in-place (ten sam inode → file-watcher Authelii widzi zmianę)
-  fs.writeFileSync(USERS_DB, txt.replace(storedHash, newHash));
+  // Atomic write: write to a temp file in the same directory, then rename.
+  // rename() is atomic on POSIX when source/target share a filesystem,
+  // so Authelia's file-watcher sees a complete file rather than a partial write.
+  const tmpPath = `${USERS_DB}.tmp.${process.pid}`;
+  fs.writeFileSync(tmpPath, txt.replace(storedHash, newHash));
+  fs.renameSync(tmpPath, USERS_DB);
   return NextResponse.json({ ok: true });
 }
