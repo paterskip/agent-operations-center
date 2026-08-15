@@ -85,9 +85,9 @@ export default function Dashboard() {
   }, [dense]);
 
   /* Live-derived views: SSE deltas override the snapshot; full load() resyncs. */
-  const tasks = liveTasks ?? data?.tasks ?? [];
+  const tasks = useMemo(() => liveTasks ?? data?.tasks ?? [], [liveTasks, data?.tasks]);
   const agents = liveAgents ?? data?.agents ?? [];
-  const activity = liveActivity ?? data?.activity ?? [];
+  const activity = useMemo(() => liveActivity ?? data?.activity ?? [], [liveActivity, data?.activity]);
   const tasksRef = useRef<TaskCard[]>(tasks);
   // eslint-disable-next-line react-hooks/refs -- latest-ref: read in event handlers (moveTask/submitDecision), render-time assignment is intentional
   tasksRef.current = tasks;
@@ -260,7 +260,6 @@ export default function Dashboard() {
       addToast(`${latest.assignee || "System"} — ${eventSummary(latest)}: ${latest.taskTitle}`, latest.kind === "completed" ? "success" : latest.kind === "blocked" ? "warning" : "info");
     }
     lastToastIdRef.current = latest.id;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activity]);
 
   /* Keyboard shortcuts */
@@ -564,7 +563,7 @@ export default function Dashboard() {
       m.set(t.assignee, e);
     }
     return m;
-  }, [data]);
+  }, [data, tasks]);
 
   const visibleTasks = useMemo(() => tasks.filter((t) => agentFilter === "all" || t.assignee === agentFilter), [tasks, agentFilter]);
   const active = agents.filter((a) => a.status === "working").length || 0;

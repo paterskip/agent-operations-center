@@ -5,7 +5,6 @@ import path from "node:path";
 
 const boardsDir = "/root/.hermes/kanban/boards";
 const HOUR = 3600;
-const DAY = 24 * HOUR;
 
 function listBoards() {
   const slugs = [];

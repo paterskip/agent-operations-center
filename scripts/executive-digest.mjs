@@ -11,7 +11,6 @@ import path from "node:path";
 const KANBAN_ROOT = process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
 const PROFILES_ROOT = process.env.HERMES_PROFILES_ROOT || "/root/.hermes/profiles";
 const STATE_DB = process.env.AOC_STATE_DB || "/var/lib/agent-operations-center/aoc.db";
-const DEFAULT_AGENTS = "pm,coder,coder-parallel,designer,tester,reviewer";
 const NAME_FALLBACK = { default: "Default Agent" };
 const HOUR = 3600;
 const DAY = 24 * HOUR;

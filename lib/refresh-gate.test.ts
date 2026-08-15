@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 // Core logic extracted from Dashboard for testing
 // Tests verify the refresh cooldown gate behavior
