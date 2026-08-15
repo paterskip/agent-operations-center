@@ -15,13 +15,12 @@ interface Props {
   open: boolean;
   onClose: () => void;
   data: DashboardSnapshot | null;
-  board: string;
   onSelectBoard: (slug: string) => void;
   onSelectTask: (task: TaskCard) => void;
   actions?: { label: string; icon: string; hint?: string; onRun: () => void }[];
 }
 
-export default function SearchModal({ open, onClose, data, board, onSelectBoard, onSelectTask, actions = [] }: Props) {
+export default function SearchModal({ open, onClose, data, onSelectBoard, onSelectTask, actions = [] }: Props) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -80,7 +79,7 @@ export default function SearchModal({ open, onClose, data, board, onSelectBoard,
             <section>
               <h4>Zadania</h4>
               {taskResults.map((t) => (
-                <button key={t.id} className="search-result" onClick={() => { if (t.boardSlug !== board) onSelectBoard(t.boardSlug); setTimeout(() => onSelectTask(t), 100); onClose(); }}>
+                <button key={t.id} className="search-result" onClick={() => { onSelectTask(t); onClose(); }}>
                   <span className={`result-badge ${t.status}`}>{t.status}</span>
                   <div><strong>{t.title}</strong><small>{t.id} · {t.assignee || "unassigned"} · {t.boardSlug}</small></div>
                 </button>

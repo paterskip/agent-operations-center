@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSnapshot } from "@/lib/hermes";
 import { audit, enqueueMove, listMoves } from "@/lib/state";
-import { ALLOWED_DROPS, isAllowedMove } from "@/lib/transitions";
+import { isAllowedMove } from "@/lib/transitions";
+import { STATUSES } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -67,9 +68,7 @@ export async function PATCH(request: NextRequest) {
     const targetStatus = String(value.targetStatus || "");
 
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(board) || !/^[A-Za-z0-9_-]{3,80}$/.test(taskId)) return NextResponse.json({ error: "Nieprawidłowy board lub task" }, { status: 400 });
-
-    const allowedTargets = ALLOWED_DROPS[targetStatus];
-    if (!allowedTargets) return NextResponse.json({ error: `Nieznany status docelowy: ${targetStatus}` }, { status: 400 });
+    if (!(STATUSES as readonly string[]).includes(targetStatus)) return NextResponse.json({ error: `Nieznany status docelowy: ${targetStatus}` }, { status: 400 });
 
     const snapshot = getSnapshot(board);
     if (snapshot.selectedBoard !== board) return NextResponse.json({ error: "Nieznany board" }, { status: 404 });

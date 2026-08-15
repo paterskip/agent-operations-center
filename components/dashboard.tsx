@@ -15,6 +15,7 @@ import { copyText } from "@/lib/clipboard";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { MissionClock } from "./MissionClock";
 import { TaskBody } from "./TaskBody";
+import { usePullToRefresh } from "./use-pull-to-refresh";
 import { ThroughputChart } from "./ThroughputChart";
 import { ActivityHeatmap } from "./ActivityHeatmap";
 import type { TrendPoint, AgentActivityCell } from "@/lib/trends";
@@ -45,13 +46,22 @@ function relativeTime(timestamp: number | null) {
 
 const eventLabels: Record<string, string> = { created: "utworzono zadanie", claimed: "rozpoczęto pracę", heartbeat: "wysłano heartbeat", completed: "zakończono zadanie", blocked: "zadanie zablokowane", comment: "dodano komentarz", status: "zmieniono status", unblocked: "odblokowano zadanie", resumed: "wznowiono pracę" };
 
+const decisionLabels: Record<"approve" | "reject" | "hold", string> = { approve: "zaakceptować i odblokować", reject: "odrzucić", hold: "zablokować" };
+
 function eventSummary(event: ActivityEvent) { return eventLabels[event.kind] || event.kind.replaceAll("_", " "); }
 
 type ViewMode = "overview" | "board" | "security" | "settings";
 type ToastItem = { id: number; text: string; kind: "info" | "success" | "warning" };
 
 const SELECTED_BOARDS_KEY = "aoc_project";
+const FOCUS_MODE_KEY = "aoc_focus";
+const DENSE_KEY = "aoc_dense";
 let toastId = 0;
+
+function readStoredFlag(key: string) {
+  if (typeof window === "undefined") return false;
+  try { return window.localStorage.getItem(key) === "1"; } catch { return false; }
+}
 
 export default function Dashboard() {
   const [view, setView] = useState<ViewMode>("overview");
@@ -72,15 +82,17 @@ export default function Dashboard() {
   const [ideaMessage, setIdeaMessage] = useState("");
   const [scorecard, setScorecard] = useState<{ slug: string; name: string; done7: number; done30: number; blocked7: number; blocked30: number; rework30: number; running: number; total: number; sessions30: number; tokens30: number; cost30: number | null }[] | null>(null);
   const [trends, setTrends] = useState<{ throughput: TrendPoint[]; agentActivity: AgentActivityCell[] } | null>(null);
-  const [focusMode, setFocusMode] = useState(false);
-  const [dense, setDense] = useState(false);
+  const [focusMode, setFocusMode] = useState(() => readStoredFlag(FOCUS_MODE_KEY));
+  const [dense, setDense] = useState(() => readStoredFlag(DENSE_KEY));
 
   useEffect(() => {
     document.body.classList.toggle("focus-mode", focusMode);
+    try { window.localStorage.setItem(FOCUS_MODE_KEY, focusMode ? "1" : "0"); } catch {}
     return () => document.body.classList.remove("focus-mode");
   }, [focusMode]);
   useEffect(() => {
     document.body.classList.toggle("density-compact", dense);
+    try { window.localStorage.setItem(DENSE_KEY, dense ? "1" : "0"); } catch {}
     return () => document.body.classList.remove("density-compact");
   }, [dense]);
 
@@ -89,7 +101,7 @@ export default function Dashboard() {
   const agents = liveAgents ?? data?.agents ?? [];
   const activity = useMemo(() => liveActivity ?? data?.activity ?? [], [liveActivity, data?.activity]);
   const tasksRef = useRef<TaskCard[]>(tasks);
-  // eslint-disable-next-line react-hooks/refs -- latest-ref: read in event handlers (moveTask/submitDecision), render-time assignment is intentional
+  // eslint-disable-next-line react-hooks/refs -- latest-ref: read in event handlers (moveTask/executeDecision), render-time assignment is intentional
   tasksRef.current = tasks;
   /* Tick for render-time clocks (SLA badges) — pure render, refreshed each minute */
   const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
@@ -100,6 +112,9 @@ export default function Dashboard() {
   const [decisionMessage, setDecisionMessage] = useState("");
   const [decisionBusy, setDecisionBusy] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [confirming, setConfirming] = useState<null | "approve" | "reject" | "hold">(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -172,6 +187,13 @@ export default function Dashboard() {
   const loadIdeas = useCallback(async () => {
     try { const r = await fetch("/api/ideas", { cache: "no-store" }); if (r.ok) setIdeas(((await r.json()) as { ideas: IdeaRecord[] }).ideas); } catch {}
   }, []);
+
+  /* Pull-to-refresh (mobile) — resync snapshot + ideas without a full page reload */
+  const { distance: pullDistance, refreshing: pullRefreshing } = usePullToRefresh(() => {
+    setRefreshing(true);
+    void load(board);
+    void loadIdeas();
+  });
 
   /* Agent scorecard — refresh on mount + every 60s while on the board view */
   useEffect(() => {
@@ -267,13 +289,13 @@ export default function Dashboard() {
     function handler(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setSearchOpen(true); return; }
       if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setView((v) => v === "board" ? "overview" : "board"); return; }
-      if (e.key === "Escape") { if (creatorOpen) { setCreatorOpen(false); return; } if (selectedTask) { setSelectedTask(null); return; } }
-      if (e.key === "?" && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") { setSearchOpen(true); return; }
+      if (e.key === "Escape") { if (creatorOpen) { setCreatorOpen(false); return; } if (selectedTask) { setSelectedTask(null); return; } if (confirming) { setConfirming(null); return; } if (moreOpen) { setMoreOpen(false); return; } if (shortcutsOpen) { setShortcutsOpen(false); return; } }
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") { setShortcutsOpen(true); return; }
       // J/K — nawigacja po kartach decyzji (Vim-style) w overview
       if (view === "overview" && (e.key === "j" || e.key === "k" || e.key === "J" || e.key === "K") && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const tag = document.activeElement?.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA") return;
-        if (searchOpen || creatorOpen || selectedTask) return;
+        if (searchOpen || creatorOpen || selectedTask || shortcutsOpen || confirming) return;
         const cards = [...document.querySelectorAll<HTMLElement>(".task-card.compact")];
         if (!cards.length) return;
         const idx = cards.findIndex((c) => c === document.activeElement);
@@ -286,7 +308,7 @@ export default function Dashboard() {
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedTask, creatorOpen, searchOpen, view]);
+  }, [selectedTask, creatorOpen, searchOpen, moreOpen, shortcutsOpen, confirming, view]);
 
   /* Move focus into the task drawer on open, restore it on close (dialog a11y) */
   useEffect(() => {
@@ -300,10 +322,10 @@ export default function Dashboard() {
 
   /* Lock page scroll while a dialog is open */
   useEffect(() => {
-    const locked = !!(selectedTask || searchOpen || creatorOpen);
+    const locked = !!(selectedTask || searchOpen || creatorOpen || shortcutsOpen || confirming);
     document.body.style.overflow = locked ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
-  }, [selectedTask, searchOpen, creatorOpen]);
+  }, [selectedTask, searchOpen, creatorOpen, shortcutsOpen, confirming]);
 
   /* persist selected project boards */
   useEffect(() => {
@@ -347,6 +369,19 @@ export default function Dashboard() {
     setRefreshing(true); void load(slug);
   }, [load]);
 
+  const openTask = useCallback((boardSlug: string, taskOrId: TaskCard | string) => {
+    const taskId = typeof taskOrId === "string" ? taskOrId : taskOrId.id;
+    setView("board");
+    if (board !== boardSlug) {
+      selectBoard(boardSlug);
+    }
+    if (typeof taskOrId !== "string") {
+      setSelectedTask(taskOrId);
+    } else {
+      setSelectedTask(tasksRef.current.find((t) => t.id === taskId) || null);
+    }
+  }, [board, selectBoard]);
+
   // Odpowiedzi filtrujemy po (board, taskId) i odrzucamy te, które dotyczą już
   // nieaktualnego zaznaczenia — inaczej wolniejszy fetch poprzedniej karty
   // nadpisywał historię aktualnej (komentarz "wyciekał" na inne zadania).
@@ -375,12 +410,16 @@ export default function Dashboard() {
     return () => { active = false; clearTimeout(t); };
   }, [board, tid, loadDecisions]);
 
-  async function submitDecision(action: "approve" | "reject" | "hold") {
+  function requestDecision(action: "approve" | "reject" | "hold") {
     if (!selectedTask) return;
     if (["reject", "hold"].includes(action) && decisionComment.trim().length < 5) { setDecisionMessage("Podaj powód — minimum 5 znaków."); return; }
-    const labels = { approve: "zaakceptować i odblokować", reject: "odrzucić", hold: "zablokować" };
-    const bn = data?.boards.find((b) => b.slug === board)?.name || board;
-    if (!confirm(`Czy na pewno chcesz ${labels[action]} zadanie ${selectedTask.id} na boardzie ${bn}?`)) return;
+    setDecisionMessage("");
+    setConfirming(action);
+  }
+
+  async function executeDecision(action: "approve" | "reject" | "hold") {
+    if (!selectedTask) return;
+    setConfirming(null);
     setDecisionBusy(true); setDecisionMessage("");
     try {
       const r = await fetch("/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ board, taskId: selectedTask.id, action, comment: decisionComment }) });
@@ -581,17 +620,48 @@ export default function Dashboard() {
   if (error || !data) return <main className="center-state"><div className="error-mark">!</div><h1>Brak danych</h1><p>{error}</p><button onClick={() => load(board)}>Spróbuj ponownie</button></main>;
 
   return <div className="app-shell">
-    <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} data={data} board={board} onSelectBoard={selectBoard} onSelectTask={setSelectedTask} actions={[
+    {(pullRefreshing || pullDistance > 0) && <div className="pull-indicator" aria-live="polite" style={{ opacity: pullRefreshing ? 1 : Math.min(1, pullDistance / 70) }}>{pullRefreshing ? <><span className="pull-spinner" /> Odświeżam…</> : "Pociągnij, aby odświeżyć"}</div>}
+
+    <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} data={data} onSelectBoard={selectBoard} onSelectTask={(t) => openTask(t.boardSlug, t)} actions={[
       { label: "Przejdź do Kanbanu", icon: "⌁", hint: "Board", onRun: () => { pendingScrollRef.current = "board"; setView("board"); } },
       { label: "Nowe zadanie", icon: "＋", hint: "Utwórz", onRun: () => { setCreatorBoard(board); setCreatorOpen(true); } },
       { label: focusMode ? "Wyłącz tryb focus" : "Włącz tryb focus", icon: "◎", hint: "Pełny ekran boardu", onRun: () => setFocusMode((f) => !f) },
       { label: dense ? "Gęstość: normalna" : "Gęstość: kompaktowa", icon: "▤", hint: "Zagęść widok", onRun: () => setDense((d) => !d) },
+      { label: "Skróty klawiaturowe", icon: "⌘", hint: "Cheatsheet", onRun: () => setShortcutsOpen(true) },
       { label: "Audyt (dziennik)", icon: "⚿", hint: "Bezpieczeństwo", onRun: () => setView("security") },
     ]} />
 
     <div className="toast-container" aria-live="polite">
       {toasts.map((toast) => <div key={toast.id} className={`toast ${toast.kind}`}>{toast.text}</div>)}
     </div>
+
+    {/* ── Shortcuts cheatsheet ── */}
+    {shortcutsOpen && <div className="creator-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) setShortcutsOpen(false); }}>
+      <div className="creator-modal shortcuts-modal" role="dialog" aria-modal="true" aria-label="Skróty klawiaturowe">
+        <h2>Skróty klawiaturowe</h2>
+        <ul className="shortcuts-list">
+          <li><kbd>⌘K</kbd><span>Wyszukiwarka / paleta poleceń</span></li>
+          <li><kbd>⌘B</kbd><span>Przełącz Overview ↔ Board</span></li>
+          <li><kbd>?</kbd><span>Ta ściąga</span></li>
+          <li><kbd>J</kbd><kbd>K</kbd><span>Nawigacja po kartach decyzji (Overview)</span></li>
+          <li><kbd>Esc</kbd><span>Zamknij modal / drawer</span></li>
+        </ul>
+        <p className="shortcuts-note">Na Windows/Linux zamień ⌘ na Ctrl.</p>
+        <div className="creator-actions"><button type="button" className="primary" onClick={() => setShortcutsOpen(false)}>Zamknij</button></div>
+      </div>
+    </div>}
+
+    {/* ── Decision confirmation ── */}
+    {confirming && selectedTask && <div className="creator-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) setConfirming(null); }}>
+      <div className="creator-modal confirm-modal" role="dialog" aria-modal="true" aria-label="Potwierdź decyzję">
+        <h2>Potwierdź decyzję</h2>
+        <p className="confirm-text">Czy na pewno chcesz <strong>{decisionLabels[confirming]}</strong> zadanie <code>{selectedTask.id}</code> na boardzie <strong>{data?.boards.find((b) => b.slug === board)?.name || board}</strong>?</p>
+        <div className="creator-actions">
+          <button type="button" onClick={() => setConfirming(null)}>Anuluj</button>
+          <button type="button" className={`primary confirm-${confirming}`} disabled={decisionBusy} onClick={() => void executeDecision(confirming)}>{decisionBusy ? "Przetwarzanie…" : "Potwierdź"}</button>
+        </div>
+      </div>
+    </div>}
 
     {/* ── Task Creator modal ── */}
     {creatorOpen && <div className="creator-backdrop" onMouseDown={(ev) => { if (ev.currentTarget === ev.target) setCreatorOpen(false); }}>
@@ -622,17 +692,23 @@ export default function Dashboard() {
     <aside className="sidebar" aria-label="Panel boczny">
       <div className="brand"><span className="brand-mark">A</span><div><strong>Agent Ops</strong><small>Mission Control</small></div></div>
       <nav aria-label="Główna nawigacja">
-        <button className={`nav-item ${view === "overview" ? "active" : ""}`} onClick={() => setView("overview")}><span>◎</span> Overview <kbd>⌃B</kbd></button>
+        <button className={`nav-item ${view === "overview" ? "active" : ""}`} onClick={() => setView("overview")}><span>◎</span> Overview <kbd>⌘B</kbd></button>
         <button className={`nav-item ${view === "board" ? "active" : ""}`} onClick={() => { if (view === "board") scrollTo("board"); else { pendingScrollRef.current = "board"; setView("board"); } }}><span>⌁</span> Board</button>
         <button className="nav-item" onClick={() => { if (view === "board") scrollTo("inbox"); else { pendingScrollRef.current = "inbox"; setView("board"); } }}><span>＋</span> CEO Inbox</button>
-        <button className="nav-item" onClick={() => { if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
+        <button className="nav-item mobile-more" onClick={() => { if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
         <button className="nav-item" onClick={() => setSearchOpen(true)}><span>⌕</span> Search <kbd>⌘K</kbd></button>
-        <button className={`nav-item ${view === "security" ? "active" : ""}`} onClick={() => setView("security")}><span>⚿</span> Audyt</button>
-        <button className={`nav-item ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>⚙</span> Ustawienia</button>
+        <button className={`nav-item mobile-more ${view === "security" ? "active" : ""}`} onClick={() => setView("security")}><span>⚿</span> Audyt</button>
+        <button className={`nav-item mobile-more ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>⚙</span> Ustawienia</button>
+        {isMobile && <button className={`nav-item more-toggle ${moreOpen ? "active" : ""}`} onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} aria-haspopup="menu"><span>⋯</span> Więcej</button>}
       </nav>
+      {isMobile && moreOpen && <div className="more-menu" role="menu" aria-label="Więcej opcji">
+        <button className="more-item" role="menuitem" onClick={() => { setMoreOpen(false); if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
+        <button className={`more-item ${view === "security" ? "active" : ""}`} role="menuitem" onClick={() => { setMoreOpen(false); setView("security"); }}><span>⚿</span> Audyt</button>
+        <button className={`more-item ${view === "settings" ? "active" : ""}`} role="menuitem" onClick={() => { setMoreOpen(false); setView("settings"); }}><span>⚙</span> Ustawienia</button>
+      </div>}
       <div className="sidebar-foot">
         <div className="sidebar-activity">
-          {activity.slice(0, 3).map((ev) => <div key={`${ev.board}-${ev.id}`} className="sidebar-event" onClick={() => { if (ev.board !== board) selectBoard(ev.board); setTimeout(() => setSelectedTask(tasks.find((t) => t.id === ev.taskId) || null), 50); }}>
+          {activity.slice(0, 3).map((ev) => <div key={`${ev.board}-${ev.id}`} className="sidebar-event" onClick={() => openTask(ev.board, ev.taskId)}>
             <span className={`event-dot ${ev.kind}`} /><small>{ev.assignee || "System"}: {eventSummary(ev)}</small>
           </div>)}
         </div>
@@ -666,7 +742,7 @@ export default function Dashboard() {
           <div className="section-head"><div><p className="eyebrow">DECYZJE</p><h2>Wymagające uwagi</h2></div></div>
           {tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).sort((a, b) => (a.startedAt || a.createdAt) - (b.startedAt || b.createdAt)).slice(0, 6).map((t) => {
             const ageH = Math.floor((nowSec - (t.startedAt || t.createdAt)) / 3600);
-            return <button key={t.id} className="task-card compact" onClick={() => { setView("board"); setTimeout(() => { selectBoard(t.boardSlug); setTimeout(() => setSelectedTask(t), 100); }, 50); }}>
+            return <button key={t.id} className="task-card compact" onClick={() => openTask(t.boardSlug, t)}>
             <div className="task-meta"><code>{t.id}</code><span className={`status-badge ${t.status}`}>{t.status}</span><span className={`sla-badge ${ageH >= 48 ? "overdue" : ageH >= 24 ? "warn" : ""}`}>{ageH >= 24 ? `${Math.floor(ageH / 24)}d ${ageH % 24}h` : `${ageH}h`}</span></div><h3>{t.title}</h3><footer>{t.boardSlug} · {t.assignee || "unassigned"}</footer>
           </button>;
           })}
@@ -675,7 +751,7 @@ export default function Dashboard() {
         <div>
           <div className="section-head"><div><p className="eyebrow">OSTATNIA AKTYWNOŚĆ</p><h2>Live feed</h2></div></div>
           {activity.slice(0, 8).map((ev) => <article key={`${ev.board}-${ev.id}`} className="activity-row">
-            <span className={`activity-dot ${ev.kind}`} /><div><p><strong>{ev.assignee || "System"}</strong> {eventSummary(ev)}</p><button onClick={() => { if (ev.board !== board) selectBoard(ev.board); setTimeout(() => setSelectedTask(tasks.find((t) => t.id === ev.taskId) || null), 50); }}>{ev.taskTitle}</button><small>{ev.board} · {relativeTime(ev.createdAt)}</small></div>
+            <span className={`activity-dot ${ev.kind}`} /><div><p><strong>{ev.assignee || "System"}</strong> {eventSummary(ev)}</p><button onClick={() => openTask(ev.board, ev.taskId)}>{ev.taskTitle}</button><small>{ev.board} · {relativeTime(ev.createdAt)}</small></div>
           </article>)}
         </div>
       </section>
@@ -785,7 +861,7 @@ export default function Dashboard() {
                       onSelectTask={setSelectedTask}
                       onApproveTask={(task) => {
                         setSelectedTask(task);
-                        setTimeout(() => { setDecisionComment(""); void submitDecision("approve"); }, 100);
+                        setTimeout(() => { setDecisionComment(""); requestDecision("approve"); }, 100);
                       }}
                       onCopyId={(id, ok) => addToast(ok ? `Skopiowano ${id}` : `Nie udało się skopiować ${id}`, ok ? "success" : "warning")}
                     />
@@ -797,7 +873,7 @@ export default function Dashboard() {
         </section>
 
         <aside className="activity-panel" id="activity" aria-label="Aktywność na żywo"><div className="section-head"><div><p className="eyebrow">EVENT STREAM</p><h2>Live activity</h2></div><span className="pulse" /></div><div className="activity-list" aria-live="polite">
-          {activity.map((event) => <article key={`${event.board}-${event.id}`}><div className={`activity-icon ${event.kind}`}>{event.kind === "completed" ? "✓" : event.kind === "blocked" ? "!" : "·"}</div><div><p><strong>{event.assignee || "System"}</strong> {eventSummary(event)}</p><button onClick={() => { if (event.board !== board) { selectBoard(event.board); } else { setSelectedTask(tasks.find((t) => t.id === event.taskId) || null); } }}>{event.taskTitle}</button><small>{event.board} · {relativeTime(event.createdAt)}</small></div></article>)}
+          {activity.map((event) => <article key={`${event.board}-${event.id}`}><div className={`activity-icon ${event.kind}`}>{event.kind === "completed" ? "✓" : event.kind === "blocked" ? "!" : "·"}</div><div><p><strong>{event.assignee || "System"}</strong> {eventSummary(event)}</p><button onClick={() => openTask(event.board, event.taskId)}>{event.taskTitle}</button><small>{event.board} · {relativeTime(event.createdAt)}</small></div></article>)}
           {!activity.length && <div className="empty-activity"><span>⌁</span><p>Zdarzenia pojawią się, gdy zespół rozpocznie pracę.</p></div>}
         </div></aside>
       </div>
@@ -814,11 +890,11 @@ export default function Dashboard() {
         <textarea value={decisionComment} onChange={(ev) => setDecisionComment(ev.target.value)} maxLength={2000} rows={3} placeholder={selectedTask.status === "blocked" ? "Komentarz (opcjonalny)" : "Powód"} />
         <div className="decision-actions">
           {/* Accept — tylko statusy, które CEO może odblokować (policy decision-policy.ts) */}
-          {decisionAllowed("approve", selectedTask.status) && <button className="approve" disabled={decisionBusy} onClick={() => void submitDecision("approve")}>{decisionBusy ? "…" : selectedTask.status === "scheduled" ? "Akceptuj → Ready" : "Akceptuj i odblokuj"}</button>}
+          {decisionAllowed("approve", selectedTask.status) && <button className="approve" disabled={decisionBusy} onClick={() => requestDecision("approve")}>{decisionBusy ? "…" : selectedTask.status === "scheduled" ? "Akceptuj → Ready" : "Akceptuj i odblokuj"}</button>}
           {/* Reject — statusy, z których CEO może odrzucić kartę */}
-          {decisionAllowed("reject", selectedTask.status) && <button className="reject" disabled={decisionBusy} onClick={() => void submitDecision("reject")}>Odrzuć</button>}
+          {decisionAllowed("reject", selectedTask.status) && <button className="reject" disabled={decisionBusy} onClick={() => requestDecision("reject")}>Odrzuć</button>}
           {/* Hold / Block — statusy aktywne, które można zamrozić */}
-          {decisionAllowed("hold", selectedTask.status) && <button disabled={decisionBusy} onClick={() => void submitDecision("hold")}>Zablokuj</button>}
+          {decisionAllowed("hold", selectedTask.status) && <button disabled={decisionBusy} onClick={() => requestDecision("hold")}>Zablokuj</button>}
         </div>
         {selectedTask.status === "triage" && <p className="decision-note">Zadanie w triage — specyfikuje je PM (komenda specify). CEO nie podejmuje tu decyzji.</p>}
         {selectedTask.status === "review" && <p className="decision-note">Status review wymaga natywnego workflow PM/reviewera — tu nie można go zatwierdzić.</p>}

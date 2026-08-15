@@ -44,11 +44,11 @@ export function KanbanColumn({
       aria-label={statusLabel}
     >
       <div className="drag-indicator" aria-hidden="true" />
-      <header onClick={onToggle} title={`${statusHelp || ""} — kliknij aby ${isCollapsed ? "rozwinąć" : "zwinąć"}`}>
+      <button type="button" className="column-toggle" onClick={onToggle} aria-expanded={!isCollapsed} title={`${statusHelp || ""} — kliknij aby ${isCollapsed ? "rozwinąć" : "zwinąć"}`}>
         <span className="status-dot" />
         <strong>{statusLabel}</strong>
         <b>{tasks.length}</b>
-      </header>
+      </button>
       {!isCollapsed && (
         <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
           <div className="task-stack">
