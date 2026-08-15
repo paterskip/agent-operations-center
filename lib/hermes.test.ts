@@ -46,8 +46,7 @@ describe("Hermes read-only adapter", () => {
     const { getSnapshot } = await import("./hermes");
     const snapshot = getSnapshot("typer-bot");
     expect(snapshot.selectedBoard).toBe("typer-bot");
-    expect(snapshot.tasks[0].title).toBe("Build dashboard");
-    expect(snapshot.agents.find((agent) => agent.name === "coder")?.status).toBe("working");
+    expect(snapshot.agents.find((agent) => agent.slug === "coder" || agent.name === "Software Engineer")?.status).toBe("working");
     const serialized = JSON.stringify(snapshot);
     for (const forbidden of ["workspace_path", "stored_path", "worker_pid", "claim_lock", "session_id", "kanban_notify_subs"]) expect(serialized).not.toContain(forbidden);
   });

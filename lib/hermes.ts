@@ -104,11 +104,33 @@ function readTasks(board: BoardRecord): TaskCard[] {
   } finally { db.close(); }
 }
 
+const fallbackNames: Record<string, string> = {
+  pm: "Product Manager",
+  coder: "Software Engineer",
+  "coder-parallel": "Parallel Execution Worker",
+  designer: "Product Designer",
+  tester: "QA Automation Engineer",
+  reviewer: "Code Reviewer & Gate",
+  default: "Operations Specialist",
+};
+
+const fallbackDescriptions: Record<string, string> = {
+  pm: "Product discovery, task specification & decomposition",
+  coder: "Core feature engineering & architecture delivery",
+  "coder-parallel": "Concurrent batch execution & distributed workers",
+  designer: "UI/UX design systems & component architecture",
+  tester: "Automated regression, integration & quality assurance",
+  reviewer: "Security inspection, code review & quality gates",
+  default: "General task execution & operations",
+};
+
 function profileMeta(): Map<string, { name: string; description: string }> {
   const profiles = new Map<string, { name: string; description: string }>();
-  const fallbackNames: Record<string, string> = { default: "Default Agent" };
   for (const slug of (process.env.AOC_AGENTS || "pm,coder,coder-parallel,designer,tester,reviewer").split(",").map((item) => item.trim()).filter(Boolean)) {
-    profiles.set(slug, { name: fallbackNames[slug] || slug, description: "Hermes specialist" });
+    profiles.set(slug, {
+      name: fallbackNames[slug] || slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      description: fallbackDescriptions[slug] || "Hermes operations specialist",
+    });
   }
   if (!fs.existsSync(/* turbopackIgnore: true */ profilesRoot)) return profiles;
   for (const slug of fs.readdirSync(/* turbopackIgnore: true */ profilesRoot).sort()) {
@@ -119,8 +141,8 @@ function profileMeta(): Map<string, { name: string; description: string }> {
     const descMatch = raw.match(/^description:\s*([\s\S]*?)(?=^\w|\Z)/m);
     const fallback = profiles.get(slug);
     profiles.set(slug, {
-      name: (nameMatch?.[1] || "").trim() || fallback?.name || slug,
-      description: (descMatch?.[1] || "").replace(/\n\s+/g, " ").trim() || fallback?.description || "Hermes specialist",
+      name: (nameMatch?.[1] || "").trim() || fallback?.name || fallbackNames[slug] || slug,
+      description: (descMatch?.[1] || "").replace(/\n\s+/g, " ").trim() || fallback?.description || fallbackDescriptions[slug] || "Hermes operations specialist",
     });
   }
   return profiles;
@@ -128,7 +150,7 @@ function profileMeta(): Map<string, { name: string; description: string }> {
 
 export function agentDisplayName(slug: string): string {
   const meta = profileMeta();
-  return meta.get(slug)?.name || (slug === "default" ? "Default Agent" : slug);
+  return meta.get(slug)?.name || fallbackNames[slug] || (slug === "default" ? "Operations Specialist" : slug);
 }
 
 function agentSummaries(boards: BoardRecord[], tasksByBoard: Map<string, TaskCard[]>): AgentSummary[] {
@@ -242,7 +264,12 @@ export function getTaskDeltas(): TaskLiveDelta[] {
 
 export function getSnapshot(requestedBoard?: string | null): DashboardSnapshot {
   const boards = discoverBoards();
-  if (!boards.length) throw new Error("No Hermes Kanban boards found");
+  if (!boards.length) {
+    // Empty state is valid, not a server fault. Return a minimal snapshot so
+    // callers (snapshot GET, tasks POST/PATCH, decisions POST) can distinguish
+    // "no boards" from "board not found" via selectedBoard instead of 500.
+    return { generatedAt: Date.now(), selectedBoard: "", boards: [], agents: [], tasks: [], activity: [] };
+  }
   const tasksByBoard = new Map(boards.map((board) => [board.slug, safeReadTasks(board)]));
   let current = "";
   try { current = fs.readFileSync(path.join(kanbanRoot, "current"), "utf8").trim(); } catch {}
