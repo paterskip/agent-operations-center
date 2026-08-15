@@ -603,11 +603,12 @@ export default function Dashboard() {
     const title = fd.get("title") as string;
     const body = fd.get("description") as string;
     const priority = Number(fd.get("priority"));
+    const assignee = (fd.get("assignee") as string) || undefined;
     try {
       const r = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ board: targetBoard, title, body, priority }),
+        body: JSON.stringify({ board: targetBoard, title, body, priority, assignee }),
       });
       const j = await r.json() as { id?: string; error?: string };
       if (!r.ok) throw new Error(j.error || "Błąd");
@@ -800,6 +801,16 @@ export default function Dashboard() {
           <label><span>Priorytet</span>
             <select name="priority" defaultValue="2">
               <option value="1">P1 — niski</option><option value="2">P2 — normalny</option><option value="3">P3 — wysoki</option><option value="4">P4 — krytyczny</option>
+            </select>
+          </label>
+          <label><span>Przypisana rola / agent</span>
+            <select name="assignee" defaultValue="">
+              <option value="">Automatycznie (PM rozdzieli w Triage)</option>
+              {agents.map((a) => (
+                <option key={a.slug} value={a.slug}>
+                  {roleName[a.slug] || a.name}
+                </option>
+              ))}
             </select>
           </label>
           {creatorError && <p className="creator-error">{creatorError}</p>}
