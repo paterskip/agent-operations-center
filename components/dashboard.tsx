@@ -23,14 +23,26 @@ import { generateDailyDigest } from "@/lib/digest";
 import type { AgentScorecardRow } from "@/lib/scorecard";
 import { notifyCriticalEvent } from "@/lib/sound";
 
-const roleIcon: Record<string, string> = { pm: "◆", coder: "⌘", "coder-parallel": "⌘", designer: "✦", tester: "✓", reviewer: "◇", default: "◈" };
+const roleIcon: Record<string, string> = {
+  pm: "◆",
+  "coder-backend": "⚙",
+  "coder-frontend": "◧",
+  coder: "⌘",
+  "coder-parallel": "⌘",
+  designer: "✦",
+  tester: "✓",
+  reviewer: "◇",
+  default: "◈",
+};
 const roleName: Record<string, string> = {
   pm: "Product Manager",
-  coder: "Software Engineer",
-  "coder-parallel": "Parallel Worker",
+  "coder-backend": "Backend Engineer",
+  "coder-frontend": "Frontend Engineer",
+  coder: "Fullstack Engineer",
+  "coder-parallel": "Parallel Execution Worker",
   designer: "Product Designer",
-  tester: "QA Engineer",
-  reviewer: "Code Reviewer",
+  tester: "QA Automation Engineer",
+  reviewer: "Code Reviewer & Gate",
   default: "Operations Specialist",
 };
 const statusLabel: Record<string, string> = { triage: "Triage", todo: "Todo", scheduled: "Scheduled", ready: "Ready", running: "In progress", blocked: "Blocked", review: "Review", done: "Done" };

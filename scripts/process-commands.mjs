@@ -88,6 +88,7 @@ export function runOne(db, exec = defaultExec) {
       `Projekt docelowy: ${idea.project}`,
       `Pomysł CEO: ${idea.description}`,
       "Przygotuj analizę wartości, kosztu, ryzyka i rekomendację. Nie wdrażaj kodu.",
+      "Dekompozycja: rozdziel architekturę/API dla Backend Engineera (coder-backend) oraz interfejs/UX dla Frontend Engineera (coder-frontend) ze wspólnym kontraktem typów.",
       "Jeśli potrzebny jest research, utwórz osobną kartę dla reviewera i odnotuj jej ID.",
       "Po analizie zablokuj kartę jako needs_input i poproś CEO o decyzję."
     ].join("\n\n");
@@ -285,6 +286,8 @@ export function checkpointAll(opts = {}) {
       "/root/.hermes/profiles/pm/state.db",
       "/root/.hermes/profiles/reviewer/state.db",
       "/root/.hermes/profiles/coder/state.db",
+      "/root/.hermes/profiles/coder-backend/state.db",
+      "/root/.hermes/profiles/coder-frontend/state.db",
       "/root/.hermes/profiles/coder-parallel/state.db",
       "/root/.hermes/profiles/designer/state.db",
       "/root/.hermes/profiles/tester/state.db",
