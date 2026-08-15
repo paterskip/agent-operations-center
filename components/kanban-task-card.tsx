@@ -13,6 +13,17 @@ const roleIcon: Record<string, string> = {
   designer: "✦",
   tester: "✓",
   reviewer: "◇",
+  default: "◈",
+};
+
+const roleName: Record<string, string> = {
+  pm: "Product Manager",
+  coder: "Software Engineer",
+  "coder-parallel": "Parallel Worker",
+  designer: "Product Designer",
+  tester: "QA Engineer",
+  reviewer: "Code Reviewer",
+  default: "Operations Specialist",
 };
 
 function relativeTime(timestamp: number | null) {
@@ -101,9 +112,9 @@ export function KanbanTaskCard({ task, onSelect, onApprove, onCopyId }: KanbanTa
         <h3>{task.title}</h3>
         <p>{task.body || "Brak opisu"}</p>
         <footer>
-          <span className="assignee">
+          <span className="assignee" title={task.assignee ? roleName[task.assignee] || task.assignee : "Unassigned"}>
             <i>{roleIcon[task.assignee || ""] || "◇"}</i>
-            {task.assignee || "unassigned"}
+            {task.assignee ? roleName[task.assignee] || task.assignee : "unassigned"}
           </span>
           <time>{relativeTime(task.startedAt || task.createdAt)}</time>
         </footer>

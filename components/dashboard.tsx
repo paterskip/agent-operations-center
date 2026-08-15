@@ -20,7 +20,16 @@ import { ThroughputChart } from "./ThroughputChart";
 import { ActivityHeatmap } from "./ActivityHeatmap";
 import type { TrendPoint, AgentActivityCell } from "@/lib/trends";
 
-const roleIcon: Record<string, string> = { pm: "◆", coder: "⌘", "coder-parallel": "⌘", designer: "✦", tester: "✓", reviewer: "◇" };
+const roleIcon: Record<string, string> = { pm: "◆", coder: "⌘", "coder-parallel": "⌘", designer: "✦", tester: "✓", reviewer: "◇", default: "◈" };
+const roleName: Record<string, string> = {
+  pm: "Product Manager",
+  coder: "Software Engineer",
+  "coder-parallel": "Parallel Worker",
+  designer: "Product Designer",
+  tester: "QA Engineer",
+  reviewer: "Code Reviewer",
+  default: "Operations Specialist",
+};
 const statusLabel: Record<string, string> = { triage: "Triage", todo: "Todo", scheduled: "Scheduled", ready: "Ready", running: "In progress", blocked: "Blocked", review: "Review", done: "Done" };
 const statusHelp: Record<string, string> = {
   triage: "Pomysł czeka na analizę PM.",
@@ -743,7 +752,7 @@ export default function Dashboard() {
           {tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).sort((a, b) => (a.startedAt || a.createdAt) - (b.startedAt || b.createdAt)).slice(0, 6).map((t) => {
             const ageH = Math.floor((nowSec - (t.startedAt || t.createdAt)) / 3600);
             return <button key={t.id} className="task-card compact" onClick={() => openTask(t.boardSlug, t)}>
-            <div className="task-meta"><code>{t.id}</code><span className={`status-badge ${t.status}`}>{t.status}</span><span className={`sla-badge ${ageH >= 48 ? "overdue" : ageH >= 24 ? "warn" : ""}`}>{ageH >= 24 ? `${Math.floor(ageH / 24)}d ${ageH % 24}h` : `${ageH}h`}</span></div><h3>{t.title}</h3><footer>{t.boardSlug} · {t.assignee || "unassigned"}</footer>
+            <div className="task-meta"><code>{t.id}</code><span className={`status-badge ${t.status}`}>{t.status}</span><span className={`sla-badge ${ageH >= 48 ? "overdue" : ageH >= 24 ? "warn" : ""}`}>{ageH >= 24 ? `${Math.floor(ageH / 24)}d ${ageH % 24}h` : `${ageH}h`}</span></div><h3>{t.title}</h3><footer>{t.boardSlug} · {t.assignee ? roleName[t.assignee] || t.assignee : "unassigned"}</footer>
           </button>;
           })}
           {tasks.filter((t) => ["blocked", "scheduled"].includes(t.status)).length === 0 && <p className="empty-state">Wszystkie zadania są odblokowane. Świetnie!</p>}
@@ -902,7 +911,7 @@ export default function Dashboard() {
         {decisionMessage && <p className="decision-message">{decisionMessage}</p>}
       </section>
 
-      <dl><div><dt>Agent</dt><dd>{selectedTask.assignee || "Nieprzypisany"}</dd></div><div><dt>Priorytet</dt><dd>P{selectedTask.priority}</dd></div><div><dt>Branch</dt><dd>{selectedTask.branchName || "—"}</dd></div><div><dt>Heartbeat</dt><dd>{relativeTime(selectedTask.lastHeartbeatAt)}</dd></div></dl>
+      <dl><div><dt>Assigned Role</dt><dd>{selectedTask.assignee ? roleName[selectedTask.assignee] || selectedTask.assignee : "Nieprzypisany"}</dd></div><div><dt>Priorytet</dt><dd>P{selectedTask.priority}</dd></div><div><dt>Branch</dt><dd>{selectedTask.branchName || "—"}</dd></div><div><dt>Heartbeat</dt><dd>{relativeTime(selectedTask.lastHeartbeatAt)}</dd></div></dl>
 
       <section><h3>Dependencies</h3><p>{selectedTask.parentIds.length ? `Parents: ${selectedTask.parentIds.join(", ")}` : "Brak"}</p>{selectedTask.childIds.length > 0 && <p>Children: {selectedTask.childIds.join(", ")}</p>}</section>
       <section><h3>Run history <span>{selectedTask.runs.length}</span></h3>{selectedTask.runs.map((r) => <article className="run" key={r.id}><div><strong>{r.profile || "worker"}</strong><span>{r.outcome || r.status}</span></div><small>{relativeTime(r.startedAt)}</small>{r.summary && <p>{r.summary}</p>}{r.error && <p className="run-error">{r.error}</p>}</article>)}{!selectedTask.runs.length && <p>Brak.</p>}</section>
