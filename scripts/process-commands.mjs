@@ -5,12 +5,33 @@ import fs from "node:fs";
 import path from "node:path";
 
 const dbPath = process.env.AOC_STATE_DB || "/var/lib/agent-operations-center/aoc.db";
-const hermes = process.env.HERMES_BIN || "/usr/local/bin/hermes";
+const defaultHermes = process.env.HERMES_BIN || "/usr/local/bin/hermes";
 
-// ── Ensure state tables exist (idempotent) ──
-{
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-  const db = new Database(dbPath);
+/**
+ * @typedef {Object} TaskSnapshot
+ * @property {string} id
+ * @property {string} status
+ */
+
+/** @type {(board: string, args: string[]) => string} */
+export function defaultExec(board, args) {
+  return execFileSync(defaultHermes, hermesArgs(board, ...args), {
+    encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024,
+    env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin", HOME: "/root" }
+  });
+}
+
+export function hermesArgs(board, ...args) {
+  return ["kanban", "--board", board, ...args];
+}
+
+export function now() { return Math.floor(Date.now() / 1000); }
+
+export function openDb(dbP = dbPath) {
+  return new Database(dbP);
+}
+
+export function ensureTables(db) {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(`
@@ -46,21 +67,14 @@ const hermes = process.env.HERMES_BIN || "/usr/local/bin/hermes";
     CREATE UNIQUE INDEX IF NOT EXISTS idx_task_moves_pending
       ON task_moves(board, task_id) WHERE status IN ('queued','running');
   `);
-  db.close();
 }
 
-const db = new Database(dbPath);
-db.pragma("journal_mode = WAL");
-
-function now() { return Math.floor(Date.now() / 1000); }
-
-function runOne() {
+export function runOne(db, exec = defaultExec) {
   const command = db.prepare("SELECT id,idea_id ideaId FROM commands WHERE status='pending' AND attempts < 3 ORDER BY id LIMIT 1").get();
   if (!command) return false;
   const idea = db.prepare("SELECT * FROM ideas WHERE id=?").get(command.ideaId);
   const ts = now();
   if (!idea) {
-    // Orphaned command (idea deleted): fail it instead of crashing the broker.
     db.transaction(() => {
       db.prepare("UPDATE commands SET status='failed', updated_at=? WHERE id=?").run(ts, command.id);
       db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','command.orphaned',?,?,NULL,?)")
@@ -72,15 +86,13 @@ function runOne() {
   try {
     const body = [
       `Projekt docelowy: ${idea.project}`,
-      `Pomys\u0142 CEO: ${idea.description}`,
-      "Przygotuj analiz\u0119 warto\u015bci, kosztu, ryzyka i rekomendacj\u0119. Nie wdra\u017caj kodu.",
-      "Je\u015bli potrzebny jest research, utw\u00f3rz osobn\u0105 kart\u0119 dla reviewera i odnotuj jej ID.",
-      "Po analizie zablokuj kart\u0119 jako needs_input i popro\u015b CEO o decyzj\u0119."
+      `Pomysł CEO: ${idea.description}`,
+      "Przygotuj analizę wartości, kosztu, ryzyka i rekomendację. Nie wdrażaj kodu.",
+      "Jeśli potrzebny jest research, utwórz osobną kartę dla reviewera i odnotuj jej ID.",
+      "Po analizie zablokuj kartę jako needs_input i poproś CEO o decyzję."
     ].join("\n\n");
     const key = createHash("sha256").update(`aoc:${idea.id}`).digest("hex");
-    const output = execFileSync(hermes, ["kanban", "--board", "portfolio", "create", idea.title, "--body", body, "--assignee", "pm", "--priority", String(idea.priority), "--created-by", "CEO Web", "--idempotency-key", key, "--json"], {
-      encoding: "utf8", timeout: 30_000, env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin", HOME: "/root" }
-    });
+    const output = exec("portfolio", ["create", idea.title, "--body", body, "--assignee", "pm", "--priority", String(idea.priority), "--created-by", "CEO Web", "--idempotency-key", key, "--json"]);
     const parsed = JSON.parse(output);
     const taskId = parsed.id || parsed.task_id;
     db.transaction(() => {
@@ -98,44 +110,34 @@ function runOne() {
   return true;
 }
 
-function hermesArgs(board, ...args) {
-  return ["kanban", "--board", board, ...args];
-}
-
-function runHermes(board, args) {
-  return execFileSync(hermes, hermesArgs(board, ...args), {
-    encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024,
-    env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin", HOME: "/root" }
-  });
-}
-
-function taskState(board, taskId) {
-  const parsed = JSON.parse(runHermes(board, ["show", taskId, "--json"]));
+export function taskState(board, taskId, exec = defaultExec) {
+  const parsed = JSON.parse(exec(board, ["show", taskId, "--json"]));
   if (!parsed?.task || parsed.task.id !== taskId) throw new Error("Task lookup mismatch");
   return parsed.task;
 }
 
-function processDecision() {
+export function processDecision(db, exec = defaultExec) {
   const decision = db.prepare("SELECT id,board,task_id taskId,action,from_status fromStatus,comment FROM task_decisions WHERE status='queued' ORDER BY created_at LIMIT 1").get();
   if (!decision) return false;
   const ts = now();
-  db.prepare("UPDATE task_decisions SET status='running', updated_at=? WHERE id=? AND status='queued'").run(ts, decision.id);
+  const claimed = db.prepare("UPDATE task_decisions SET status='running', updated_at=? WHERE id=? AND status='queued'").run(ts, decision.id);
+  if (claimed.changes === 0) return false;
   try {
-    const before = taskState(decision.board, decision.taskId);
+    const before = taskState(decision.board, decision.taskId, exec);
     if (before.status !== decision.fromStatus) throw new Error(`Task status changed from ${decision.fromStatus} to ${before.status}`);
     const reason = decision.comment || "Decyzja CEO: zaakceptowano do dalszej pracy. PM decyduje o przydziale.";
     if (decision.action === "approve" || decision.action === "resume") {
       if (!["blocked", "scheduled"].includes(before.status)) throw new Error(`Cannot resume task in ${before.status}`);
-      runHermes(decision.board, ["unblock", decision.taskId, "--reason", `CEO APPROVED: ${reason}`]);
+      exec(decision.board, ["unblock", decision.taskId, "--reason", `CEO APPROVED: ${reason}`]);
     } else if (decision.action === "reject") {
-      if (before.status === "blocked") runHermes(decision.board, ["comment", decision.taskId, `CEO REJECTED: ${reason}`, "--author", "CEO Web", "--max-len", "2000"]);
-      else if (["ready", "running"].includes(before.status)) runHermes(decision.board, ["block", decision.taskId, `CEO REJECTED: ${reason}`, "--kind", "needs_input"]);
+      if (before.status === "blocked") exec(decision.board, ["comment", decision.taskId, `CEO REJECTED: ${reason}`, "--author", "CEO Web", "--max-len", "2000"]);
+      else if (["ready", "running"].includes(before.status)) exec(decision.board, ["block", decision.taskId, `CEO REJECTED: ${reason}`, "--kind", "needs_input"]);
       else throw new Error(`Cannot reject task in ${before.status}`);
     } else if (decision.action === "hold") {
       if (!["todo", "ready", "running"].includes(before.status)) throw new Error(`Cannot hold task in ${before.status}`);
-      runHermes(decision.board, ["block", decision.taskId, `CEO HOLD: ${reason}`, "--kind", "needs_input"]);
+      exec(decision.board, ["block", decision.taskId, `CEO HOLD: ${reason}`, "--kind", "needs_input"]);
     } else throw new Error("Unknown decision action");
-    const after = taskState(decision.board, decision.taskId);
+    const after = taskState(decision.board, decision.taskId, exec);
     const allowed = decision.action === "approve" || decision.action === "resume" ? ["ready", "todo"] : ["blocked", "triage"];
     if (!allowed.includes(after.status)) throw new Error(`Unexpected resulting status ${after.status}`);
     db.transaction(() => {
@@ -154,18 +156,19 @@ function processDecision() {
   return true;
 }
 
-function processMove() {
+export function processMove(db, exec = defaultExec) {
   const move = db.prepare("SELECT id,board,task_id taskId,action,from_status fromStatus,to_status toStatus,title,body,assignee,priority,comment FROM task_moves WHERE status='queued' ORDER BY created_at LIMIT 1").get();
   if (!move) return false;
   const ts = now();
-  db.prepare("UPDATE task_moves SET status='running', updated_at=? WHERE id=? AND status='queued'").run(ts, move.id);
+  const claimed = db.prepare("UPDATE task_moves SET status='running', updated_at=? WHERE id=? AND status='queued'").run(ts, move.id);
+  if (claimed.changes === 0) return false;
   try {
     if (move.action === "create") {
       const args = ["create", move.title, "--body", move.body || "Created from AOC panel",
         "--priority", String(move.priority || 2), "--json"];
       if (move.assignee) args.push("--assignee", move.assignee);
       args.push("--created-by", "CEO Web", "--idempotency-key", createHash("sha256").update(`aoc-move:${move.id}`).digest("hex"));
-      const output = runHermes(move.board, args);
+      const output = exec(move.board, args);
       const parsed = JSON.parse(output);
       const createdId = parsed.id || parsed.task_id;
       db.transaction(() => {
@@ -175,33 +178,27 @@ function processMove() {
           .run(`${move.board}/${createdId}`, `move.id=${move.id}`, ts);
       })();
     } else {
-      const task = taskState(move.board, move.taskId);
+      const task = taskState(move.board, move.taskId, exec);
       if (task.status !== move.fromStatus) throw new Error(`Task status changed from ${move.fromStatus} to ${task.status}`);
 
-      const transition = `${move.fromStatus}\u2192${move.toStatus}`;
+      const transition = `${move.fromStatus}→${move.toStatus}`;
 
-      // Only CLI-executable transitions (see lib/transitions.ts). Every other
-      // move is agent-driven by design — a `comment` alone does NOT change
-      // status (verified 2026-08-12), and `specify`/`promote` require an aux
-      // LLM or a specific source status, so they are not used here.
       if (move.fromStatus === "todo" && move.toStatus === "scheduled") {
-        runHermes(move.board, ["schedule", move.taskId, "CEO scheduled via Kanban panel"]);
+        exec(move.board, ["schedule", move.taskId, "CEO scheduled via Kanban panel"]);
       } else if (move.fromStatus === "ready" && move.toStatus === "running") {
-        runHermes(move.board, ["claim", move.taskId, "--ttl", "3600"]);
+        exec(move.board, ["claim", move.taskId, "--ttl", "3600"]);
       } else if (move.fromStatus === "running" && move.toStatus === "blocked") {
-        runHermes(move.board, ["block", move.taskId, "CEO blocked via Kanban panel", "--kind", "needs_input"]);
+        exec(move.board, ["block", move.taskId, "CEO blocked via Kanban panel", "--kind", "needs_input"]);
       } else if (move.fromStatus === "running" && move.toStatus === "review") {
         const result = move.comment.includes("CEO drag") ? "Moved to review by CEO" : move.comment;
-        runHermes(move.board, ["complete", move.taskId, "--result", result]);
+        exec(move.board, ["complete", move.taskId, "--result", result]);
       } else if (move.fromStatus === "review" && move.toStatus === "ready") {
-        runHermes(move.board, ["reopen-review", move.taskId, "--reason", "CEO sent back: review\u2192ready"]);
+        exec(move.board, ["reopen-review", move.taskId, "--reason", "CEO sent back: review→ready"]);
       } else {
         throw new Error(`Unsupported transition: ${transition}`);
       }
 
-      const after = taskState(move.board, move.taskId);
-      // Fail-closed: jesli status faktycznie sie nie zmienil, to NIE jest sukces.
-      // Wczesniej broker raportowal 'done' mimo ze karta nie drgnela.
+      const after = taskState(move.board, move.taskId, exec);
       if (after.status === move.fromStatus && move.toStatus !== move.fromStatus) {
         throw new Error(`Transition ${transition} did not change status (still '${after.status}')`);
       }
@@ -223,65 +220,56 @@ function processMove() {
   return true;
 }
 
-// ── Backup: every 5 minutes (was every cycle/5s), keep 24 copies per board ──
-const BACKUP_MS = 5 * 60 * 1000; // 5 minutes
-const BACKUP_KEEP = 24; // keep last 24 copies (~2 hours)
+// ── Backup: every 5 minutes, keep 24 copies per board ──
+const BACKUP_MS = 5 * 60 * 1000;
+const BACKUP_KEEP = 24;
 
-function backupKanban() {
-  // NOTE: systemd unit has PrivateTmp=true, so /tmp is ephemeral — the stamp
-  // must live somewhere persistent (next to the state DB), not /tmp.
-  const stampFile = path.join(path.dirname(process.env.AOC_STATE_DB || "/var/lib/agent-operations-center/aoc.db"), ".aoc-last-backup");
+export function backupKanban(opts = {}) {
+  const stateDb = opts.stateDbPath || process.env.AOC_STATE_DB || "/var/lib/agent-operations-center/aoc.db";
+  const stampFile = path.join(path.dirname(stateDb), ".aoc-last-backup");
   const nowMs = Date.now();
   try {
     const lastMs = Number(fs.readFileSync(stampFile, "utf8").trim());
     if (!Number.isNaN(lastMs) && nowMs - lastMs < BACKUP_MS) return;
   } catch {}
-  const kanbanRoot = process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
+  const kanbanRoot = opts.kanbanRoot || process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
   const boardsDir = path.join(kanbanRoot, "boards");
   const backupDir = path.join(kanbanRoot, "backups");
   fs.mkdirSync(backupDir, { recursive: true });
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  // Default board (kanban.db at the kanban root) — checkpoint so the docker
-  // reader's ro mount of the main file stays fresh (the -wal/-shm are NOT
-  // mounted; SQLite deletes them when the last connection closes).
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const defaultDb = path.join(kanbanRoot, "..", "kanban.db");
   if (fs.existsSync(defaultDb)) {
     try {
       const c = new Database(defaultDb);
       try { c.pragma("wal_checkpoint(TRUNCATE)"); } finally { c.close(); }
     } catch { /* busy */ }
-    fs.copyFileSync(defaultDb, path.join(backupDir, `default-${timestamp}.db`));
+    fs.copyFileSync(defaultDb, path.join(backupDir, `default-${ts}.db`));
   }
-  for (const slug of fs.readdirSync(boardsDir)) {
+  const boardSlugs = fs.existsSync(boardsDir) ? fs.readdirSync(boardsDir) : [];
+  for (const slug of boardSlugs) {
     if (slug.startsWith("_") || slug.includes("..")) continue;
     const src = path.join(boardsDir, slug, "kanban.db");
     if (!fs.existsSync(src)) continue;
-    const dest = path.join(backupDir, `${slug}-${timestamp}.db`);
-    // WAL consistency: try to checkpoint the board DB first (best-effort — Hermes
-    // may hold a write lock). better-sqlite3 13.x backup() crashes the process
-    // after completing, so we copy the file directly like before.
+    const dest = path.join(backupDir, `${slug}-${ts}.db`);
     try {
       const checkpoint = new Database(src);
       try { checkpoint.pragma("wal_checkpoint(TRUNCATE)"); } finally { checkpoint.close(); }
-    } catch { /* busy — copy what is there */ }
+    } catch { /* busy */ }
     fs.copyFileSync(src, dest);
   }
-  for (const slug of fs.readdirSync(boardsDir)) {
+  for (const slug of boardSlugs) {
     if (slug.startsWith("_") || slug.includes("..")) continue;
     const backups = fs.readdirSync(backupDir).filter((f) => f.startsWith(`${slug}-`) && f.endsWith(".db")).sort().reverse();
     for (const old of backups.slice(BACKUP_KEEP)) fs.unlinkSync(path.join(backupDir, old));
+    const defBackups = fs.readdirSync(backupDir).filter((f) => f.startsWith("default-") && f.endsWith(".db")).sort().reverse();
+    for (const old of defBackups.slice(BACKUP_KEEP)) fs.unlinkSync(path.join(backupDir, old));
   }
-  const defBackups = fs.readdirSync(backupDir).filter((f) => f.startsWith("default-") && f.endsWith(".db")).sort().reverse();
-  for (const old of defBackups.slice(BACKUP_KEEP)) fs.unlinkSync(path.join(backupDir, old));
   fs.writeFileSync(stampFile, String(nowMs));
 }
 
-// ── WAL checkpoint: flush WAL to main DB after processing ──
-function checkpointAll() {
+export function checkpointAll(opts = {}) {
   try {
-    db.pragma("wal_checkpoint(TRUNCATE)");
-    // Hermes kanban boards — keeps the docker reader's ro-mounted main DBs fresh
-    const kanbanRoot = process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
+    const kanbanRoot = opts.kanbanRoot || process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
     const boardsDir = path.join(kanbanRoot, "boards");
     const statePaths = [
       path.join(kanbanRoot, "..", "kanban.db"),
@@ -311,4 +299,22 @@ function checkpointAll() {
   } catch { /* checkpoint is best-effort */ }
 }
 
-try { backupKanban(); const hadWork = runOne() || processDecision() || processMove(); if (hadWork) checkpointAll(); } finally { db.close(); }
+export function initDb() {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new Database(dbPath);
+  ensureTables(db);
+  return db;
+}
+
+export function main() {
+  const db = initDb();
+  try {
+    backupKanban();
+    const hadWork = runOne(db) || processDecision(db) || processMove(db);
+    if (hadWork) checkpointAll();
+  } finally {
+    db.close();
+  }
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) main();
