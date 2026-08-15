@@ -19,6 +19,9 @@ import { usePullToRefresh } from "./use-pull-to-refresh";
 import { ThroughputChart } from "./ThroughputChart";
 import { ActivityHeatmap } from "./ActivityHeatmap";
 import type { TrendPoint, AgentActivityCell } from "@/lib/trends";
+import { generateDailyDigest } from "@/lib/digest";
+import type { AgentScorecardRow } from "@/lib/scorecard";
+import { notifyCriticalEvent } from "@/lib/sound";
 
 const roleIcon: Record<string, string> = { pm: "◆", coder: "⌘", "coder-parallel": "⌘", designer: "✦", tester: "✓", reviewer: "◇", default: "◈" };
 const roleName: Record<string, string> = {
@@ -82,17 +85,16 @@ export default function Dashboard() {
   const [selectedTask, setSelectedTask] = useState<TaskCard | null>(null);
   const [agentFilter, setAgentFilter] = useState("all");
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const drawerRef = useRef<HTMLElement | null>(null);
   const drawerLastFocusRef = useRef<HTMLElement | null>(null);
   const [error, setError] = useState("");
-  const [live, setLive] = useState(false);
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
   const [ideaMessage, setIdeaMessage] = useState("");
-  const [scorecard, setScorecard] = useState<{ slug: string; name: string; done7: number; done30: number; blocked7: number; blocked30: number; rework30: number; running: number; total: number; sessions30: number; tokens30: number; cost30: number | null }[] | null>(null);
+  const [scorecard, setScorecard] = useState<AgentScorecardRow[] | null>(null);
   const [trends, setTrends] = useState<{ throughput: TrendPoint[]; agentActivity: AgentActivityCell[] } | null>(null);
   const [focusMode, setFocusMode] = useState(() => readStoredFlag(FOCUS_MODE_KEY));
   const [dense, setDense] = useState(() => readStoredFlag(DENSE_KEY));
+  const [soundEnabled, setSoundEnabled] = useState(() => typeof window !== "undefined" ? window.localStorage.getItem("aoc_sound_enabled") !== "0" : true);
 
   useEffect(() => {
     document.body.classList.toggle("focus-mode", focusMode);
@@ -127,6 +129,15 @@ export default function Dashboard() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
+  // ── Live Stream & Filter states ──
+  const [liveStatus, setLiveStatus] = useState<"connected" | "reconnecting" | "offline">("connected");
+  const [eventCount, setEventCount] = useState(0);
+  const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [attentionOnly, setAttentionOnly] = useState(false);
+  const [boardSearch, setBoardSearch] = useState("");
+  const [newCommentText, setNewCommentText] = useState("");
+  const [submittingComment, setSubmittingComment] = useState(false);
+
   // ── Navigation scroll target (triggers after view render) ──
   const pendingScrollRef = useRef<string | null>(null);
 
@@ -142,11 +153,11 @@ export default function Dashboard() {
   const creatorFormRef = useRef<HTMLFormElement | null>(null);
   const [creatorBoard, setCreatorBoard] = useState("");
 
-  function addToast(text: string, kind: ToastItem["kind"] = "info") {
+  const addToast = useCallback((text: string, kind: ToastItem["kind"] = "info") => {
     const id = ++toastId;
     setToasts((prev) => [...prev.slice(-4), { id, text, kind }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
-  }
+  }, []);
 
   const scrollTo = useCallback((id: string) => {
     const el = document.getElementById(id);
@@ -190,7 +201,7 @@ export default function Dashboard() {
       const msg = e instanceof DOMException && e.name === "AbortError" ? "Przekroczono czas połączenia — spróbuj ponownie." : e instanceof Error ? e.message : "Nie udało się pobrać danych";
       setError(msg);
     }
-    finally { clearTimeout(timer); setLoading(false); setRefreshing(false); }
+    finally { clearTimeout(timer); setLoading(false); }
   }, []);
 
   const loadIdeas = useCallback(async () => {
@@ -199,7 +210,6 @@ export default function Dashboard() {
 
   /* Pull-to-refresh (mobile) — resync snapshot + ideas without a full page reload */
   const { distance: pullDistance, refreshing: pullRefreshing } = usePullToRefresh(() => {
-    setRefreshing(true);
     void load(board);
     void loadIdeas();
   });
@@ -260,7 +270,7 @@ export default function Dashboard() {
       }
     };
     es.addEventListener("ready", () => {
-      setLive(true);
+      setLiveStatus("connected");
       // Reconnect after a drop: resync with a full snapshot (rare — safe point).
       if (droppedRef.current) { droppedRef.current = false; void load(board); }
     });
@@ -268,19 +278,41 @@ export default function Dashboard() {
       // Nie ruszaj boardu podczas przeciągania — zabezpiecza przed przerwaniem drag
       if (draggingTaskIdRef.current) return;
       try { apply(JSON.parse((ev as MessageEvent).data)); } catch { /* malformed frame */ }
-      setLive(true);
+      setLiveStatus("connected");
+      setEventCount((c) => c + 1);
     });
     es.addEventListener("presence", (ev) => {
       try {
         const p = JSON.parse((ev as MessageEvent).data);
         if (p?.agents?.length) setLiveAgents(p.agents);
       } catch { /* malformed frame */ }
-      setLive(true);
+      setLiveStatus("connected");
+      setEventCount((c) => c + 1);
     });
-    es.addEventListener("source-error", () => setLive(false));
-    es.onerror = () => { droppedRef.current = true; setLive(false); };
-    return () => { setLive(false); es.close(); };
+    es.addEventListener("source-error", () => {
+      setLiveStatus("offline");
+    });
+    es.onerror = () => {
+      droppedRef.current = true;
+      setLiveStatus("reconnecting");
+    };
+    return () => {
+      setLiveStatus("offline");
+      es.close();
+    };
   }, [view, board, load]);
+
+  const toggleSound = useCallback(() => {
+    setSoundEnabled((prev) => {
+      const next = !prev;
+      try { window.localStorage.setItem("aoc_sound_enabled", next ? "1" : "0"); } catch {}
+      if (next && typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+        void Notification.requestPermission();
+      }
+      addToast(next ? "Włączono dźwięki powiadomień" : "Wyciszono powiadomienia", "info");
+      return next;
+    });
+  }, [addToast]);
 
   /* Toast for new activity — derived from the live feed diff (no extra SSE) */
   const lastToastIdRef = useRef<number | null>(null);
@@ -289,9 +321,12 @@ export default function Dashboard() {
     if (!latest) return;
     if (lastToastIdRef.current !== null && lastToastIdRef.current !== latest.id) {
       addToast(`${latest.assignee || "System"} — ${eventSummary(latest)}: ${latest.taskTitle}`, latest.kind === "completed" ? "success" : latest.kind === "blocked" ? "warning" : "info");
+      if (latest.kind === "blocked") {
+        notifyCriticalEvent(`⚠️ Zablokowane zadanie: ${latest.taskTitle}`, `${latest.assignee || "Agent"} zgłasza problem`, soundEnabled);
+      }
     }
     lastToastIdRef.current = latest.id;
-  }, [activity]);
+  }, [activity, soundEnabled, addToast]);
 
   /* Keyboard shortcuts */
   useEffect(() => {
@@ -375,7 +410,7 @@ export default function Dashboard() {
     window.history.replaceState({}, "", u.toString());
     try { const saved = JSON.parse(window.localStorage.getItem(SELECTED_BOARDS_KEY) || "{}") as Record<string, string>; saved.workspace = slug; window.localStorage.setItem(SELECTED_BOARDS_KEY, JSON.stringify(saved)); } catch {}
     setView("board");
-    setRefreshing(true); void load(slug);
+    void load(slug);
   }, [load]);
 
   const openTask = useCallback((boardSlug: string, taskOrId: TaskCard | string) => {
@@ -512,6 +547,52 @@ export default function Dashboard() {
     } catch (e) { addToast(e instanceof Error ? e.message : "Błąd przenoszenia", "warning"); }
   }
 
+  function copyDailyDigest() {
+    if (!data) return;
+    const snap: DashboardSnapshot = {
+      generatedAt: Date.now(),
+      selectedBoard: board,
+      boards: data.boards,
+      agents: agents,
+      tasks: tasks,
+      activity: activity,
+    };
+    const md = generateDailyDigest(snap, scorecard || []);
+    void copyText(md).then((ok) => {
+      addToast(ok ? "Skopiowano raport operacyjny (Markdown) do schowka" : "Nie udało się skopiować raportu", ok ? "success" : "warning");
+    });
+  }
+
+  async function submitTaskComment(ev: React.FormEvent<HTMLFormElement>) {
+    ev.preventDefault();
+    if (!selectedTask || !newCommentText.trim()) return;
+    setSubmittingComment(true);
+    const commentBody = newCommentText.trim();
+    try {
+      const r = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ board, taskId: selectedTask.id, comment: commentBody }),
+      });
+      const j = (await r.json()) as { error?: string };
+      if (!r.ok) throw new Error(j.error || "Błąd dodawania komentarza");
+      addToast("Komentarz CEO zakolejkowany", "success");
+      setNewCommentText("");
+      const optimistic = {
+        id: Date.now(),
+        taskId: selectedTask.id,
+        author: "CEO Web",
+        body: commentBody,
+        createdAt: Math.floor(Date.now() / 1000),
+      };
+      setSelectedTask((prev) => (prev ? { ...prev, comments: [...prev.comments, optimistic] } : null));
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "Błąd", "warning");
+    } finally {
+      setSubmittingComment(false);
+    }
+  }
+
   // ── Task Creator: submit ──
   async function submitNewTask(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault();
@@ -542,20 +623,23 @@ export default function Dashboard() {
 
   // ── DnD handlers (@dnd-kit) ──
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
   );
 
   function handleDragStart(event: DragStartEvent) {
-    draggingTaskIdRef.current = String(event.active.id);
-    setDraggingTaskId(String(event.active.id));
-    setDragOverStatus(null);
+    const id = String(event.active.id);
+    draggingTaskIdRef.current = id;
+    setDraggingTaskId(id);
+    const task = tasks.find((t) => t.id === id);
+    if (task) setDragOverStatus(task.status);
   }
 
   function handleDragOver(event: DragOverEvent) {
-    const overId = event.over?.id;
-    const overStatus = overId ? String(overId) : null;
-    if (overStatus && (STATUSES as readonly string[]).includes(overStatus)) {
+    const { over } = event;
+    if (!over) { setDragOverStatus(null); return; }
+    const overStatus = String(over.id);
+    if ((STATUSES as readonly string[]).includes(overStatus)) {
       setDragOverStatus(overStatus as TaskCard["status"]);
     } else if (overStatus) {
       // over a sortable item — derive its column
@@ -613,9 +697,32 @@ export default function Dashboard() {
     return m;
   }, [data, tasks]);
 
-  const visibleTasks = useMemo(() => tasks.filter((t) => agentFilter === "all" || t.assignee === agentFilter), [tasks, agentFilter]);
+  const visibleTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      // 1. Filtr agenta / roli
+      if (agentFilter !== "all" && t.assignee !== agentFilter) return false;
+      // 2. Filtr priorytetu
+      if (priorityFilter !== "all" && String(t.priority) !== priorityFilter) return false;
+      // 3. Filtr "Tylko wymagające uwagi"
+      if (attentionOnly) {
+        const startTs = t.startedAt || t.createdAt;
+        const ageHours = startTs ? Math.floor((nowSec - startTs) / 3600) : 0;
+        const isAttention = ["blocked", "scheduled"].includes(t.status) || (ageHours >= 24 && ["review", "running"].includes(t.status));
+        if (!isAttention) return false;
+      }
+      // 4. Szybkie wyszukiwanie na tablicy
+      if (boardSearch.trim()) {
+        const q = boardSearch.toLowerCase().trim();
+        const matchTitle = t.title.toLowerCase().includes(q);
+        const matchId = t.id.toLowerCase().includes(q);
+        const matchBody = (t.body || "").toLowerCase().includes(q);
+        if (!matchTitle && !matchId && !matchBody) return false;
+      }
+      return true;
+    });
+  }, [tasks, agentFilter, priorityFilter, attentionOnly, boardSearch, nowSec]);
+
   const active = agents.filter((a) => a.status === "working").length || 0;
-  const blockedCount = data?.boards.reduce((s, b) => s + (b.counts.blocked || 0), 0) || 0;
   const pendingDecisions = data?.boards.reduce((s, b) => s + (b.counts.blocked || 0) + (b.counts.scheduled || 0), 0) || 0;
 
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
@@ -633,7 +740,13 @@ export default function Dashboard() {
 
     <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} data={data} onSelectBoard={selectBoard} onSelectTask={(t) => openTask(t.boardSlug, t)} actions={[
       { label: "Przejdź do Kanbanu", icon: "⌁", hint: "Board", onRun: () => { pendingScrollRef.current = "board"; setView("board"); } },
+      { label: "📋 Kopiuj dzienny raport CEO", icon: "📋", hint: "Markdown", onRun: copyDailyDigest },
+      { label: "⚠️ Pokaż tylko wymagające uwagi", icon: "⚠️", hint: "SLA / Blocked", onRun: () => { setAttentionOnly(true); setView("board"); } },
+      { label: "✕ Wyczyść filtry tablicy", icon: "✕", hint: "Reset filtrów", onRun: () => { setAgentFilter("all"); setPriorityFilter("all"); setAttentionOnly(false); setBoardSearch(""); } },
       { label: "Nowe zadanie", icon: "＋", hint: "Utwórz", onRun: () => { setCreatorBoard(board); setCreatorOpen(true); } },
+      { label: soundEnabled ? "Wycisz dźwięki powiadomień" : "Włącz dźwięki powiadomień", icon: soundEnabled ? "🔔" : "🔕", hint: "Alerty audio", onRun: toggleSound },
+      { label: "📥 Pobierz audyt (CSV)", icon: "📥", hint: "Eksport 30 dni", onRun: () => window.open("/api/audit/export?format=csv&days=30", "_blank") },
+      { label: "📥 Pobierz audyt (JSON)", icon: "📥", hint: "Eksport 30 dni", onRun: () => window.open("/api/audit/export?format=json&days=30", "_blank") },
       { label: focusMode ? "Wyłącz tryb focus" : "Włącz tryb focus", icon: "◎", hint: "Pełny ekran boardu", onRun: () => setFocusMode((f) => !f) },
       { label: dense ? "Gęstość: normalna" : "Gęstość: kompaktowa", icon: "▤", hint: "Zagęść widok", onRun: () => setDense((d) => !d) },
       { label: "Skróty klawiaturowe", icon: "⌘", hint: "Cheatsheet", onRun: () => setShortcutsOpen(true) },
@@ -727,7 +840,26 @@ export default function Dashboard() {
 
     {/* --- OVERVIEW --- */}
     {view === "overview" && <main className="main-content" id="overview">
-      <header className="topbar"><div><p className="eyebrow">AGENT OPERATIONS CENTER</p><h1>Overview</h1></div><div className="top-actions"><MissionClock /><span className="shortcut-hint"><kbd>⌘K</kbd> search — <kbd>⌘B</kbd> board</span></div></header>
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">AGENT OPERATIONS CENTER</p>
+          <h1>Overview</h1>
+        </div>
+        <div className="top-actions">
+          <div className={`live-status-pill ${liveStatus}`} title={`SSE Stream: ${liveStatus} (${eventCount} zdarzeń w sesji)`}>
+            <span className="live-pulse-dot" />
+            <span>{liveStatus === "connected" ? `LIVE (${eventCount})` : liveStatus === "reconnecting" ? "RECONNECTING" : "OFFLINE"}</span>
+          </div>
+          <button type="button" className="digest-top-btn" onClick={copyDailyDigest} title="Kopiuj raport operacyjny (Markdown) do schowka">
+            📋 Kopiuj raport
+          </button>
+          <button type="button" className={`sound-top-btn ${soundEnabled ? "on" : "off"}`} onClick={toggleSound} title={soundEnabled ? "Wycisz dźwięki powiadomień" : "Włącz dźwięki powiadomień"}>
+            {soundEnabled ? "🔔" : "🔕"}
+          </button>
+          <MissionClock />
+          <span className="shortcut-hint"><kbd>⌘K</kbd> search — <kbd>⌘B</kbd> board</span>
+        </div>
+      </header>
       <section className="metric-grid" aria-label="Kluczowe metryki">
         <article><span>Aktywni agenci</span><strong><AnimatedNumber value={active} /><small> / {agents.length}</small></strong><i className="metric-line blue" /></article>
         <article><span>Wymagają decyzji</span><strong><AnimatedNumber value={pendingDecisions} /></strong><i className="metric-line red" /></article>
@@ -773,19 +905,25 @@ export default function Dashboard() {
 
     {view === "board" && <main className="main-content" id="board">
       <header className="topbar">
-        <div><p className="eyebrow">OPERATIONS / LIVE</p><h1>Command Center</h1></div>
-        <div className="top-actions"><span className={`live-pill ${live ? "" : "offline"}`}><i /> {live ? "LIVE" : "RECONNECTING"}</span>{refreshing && <span className="refreshing" role="status">Odświeżam…</span>}<span className="updated">Aktualizacja {new Date(data.generatedAt).toLocaleTimeString("pl-PL")}</span></div>
+        <div><p className="eyebrow">AGENT OPERATIONS CENTER</p><h1>Delivery Board</h1></div>
+        <div className="top-actions">
+          <div className={`live-status-pill ${liveStatus}`} title={`SSE Stream: ${liveStatus} (${eventCount} zdarzeń w sesji)`}>
+            <span className="live-pulse-dot" />
+            <span>{liveStatus === "connected" ? `LIVE (${eventCount})` : liveStatus === "reconnecting" ? "RECONNECTING" : "OFFLINE"}</span>
+          </div>
+          <button type="button" className="digest-top-btn" onClick={copyDailyDigest} title="Kopiuj raport operacyjny (Markdown) do schowka">
+            📋 Kopiuj raport
+          </button>
+          <button type="button" className={`sound-top-btn ${soundEnabled ? "on" : "off"}`} onClick={toggleSound} title={soundEnabled ? "Wycisz dźwięki powiadomień" : "Włącz dźwięki powiadomień"}>
+            {soundEnabled ? "🔔" : "🔕"}
+          </button>
+          <button className="new-task-btn" onClick={() => { setCreatorBoard(board); setCreatorOpen(true); }}>＋ Nowe zadanie</button>
+          <span className="shortcut-hint"><kbd>⌘K</kbd> search — <kbd>⌘B</kbd> overview</span>
+        </div>
       </header>
 
-      <section className="metric-grid" aria-label="Podsumowanie">
-        <article><span>Aktywni agenci</span><strong><AnimatedNumber value={active} /><small> / {agents.length}</small></strong><i className="metric-line blue" /></article>
-        <article><span>Zadania w toku</span><strong><AnimatedNumber value={data.boards.reduce((s, b) => s + (b.counts.running || 0), 0)} /></strong><i className="metric-line violet" /></article>
-        <article><span>Wymaga uwagi</span><strong><AnimatedNumber value={blockedCount} /></strong><i className="metric-line red" /></article>
-        <article><span>Ukończone</span><strong><AnimatedNumber value={data.boards.reduce((s, b) => s + (b.counts.done || 0), 0)} /></strong><i className="metric-line green" /></article>
-      </section>
-
-      <section className="project-strip" aria-label="Projekty">
-        {data.boards.map((item) => <button key={item.slug} className={`project-chip ${board === item.slug ? "selected" : ""}`} onClick={() => selectBoard(item.slug)}>
+      <section className="project-selector" aria-label="Wybór projektu">
+        {data.boards.filter((b) => !["default", "portfolio"].includes(b.slug)).map((item) => <button key={item.slug} className={`project-tab ${item.slug === board ? "active" : ""}`} onClick={() => selectBoard(item.slug)}>
           <span className="project-icon">{item.icon}</span><span><strong>{item.name}</strong><small>{item.counts.running || 0} active · {item.counts.blocked || 0} blocked</small></span>
         </button>)}
       </section>
@@ -839,6 +977,70 @@ export default function Dashboard() {
               <span className="secure-write">Authelia</span>
             </div>
           </div>
+
+          {/* ── Szybkie filtry Kanban ── */}
+          <div className="kanban-filter-bar" role="toolbar" aria-label="Filtry tablicy Kanban">
+            <div className="kanban-filter-controls">
+              <button
+                type="button"
+                className={`filter-toggle-btn ${attentionOnly ? "active" : ""}`}
+                onClick={() => setAttentionOnly((a) => !a)}
+                title="Pokaż wyłącznie zadania wymagające decyzji CEO lub wiszące >24h"
+              >
+                ⚠️ Wymagające uwagi
+              </button>
+              <select
+                className="filter-select"
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                aria-label="Filtruj po priorytecie"
+              >
+                <option value="all">Wszystkie priorytety</option>
+                <option value="4">P4 — Krytyczny</option>
+                <option value="3">P3 — Wysoki</option>
+                <option value="2">P2 — Normalny</option>
+                <option value="1">P1 — Niski</option>
+              </select>
+              <select
+                className="filter-select"
+                value={agentFilter}
+                onChange={(e) => setAgentFilter(e.target.value)}
+                aria-label="Filtruj po roli agenta"
+              >
+                <option value="all">Wszyscy agenci / role</option>
+                {agents.map((a) => (
+                  <option key={a.slug} value={a.slug}>
+                    {roleName[a.slug] || a.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="search"
+                className="filter-search-input"
+                placeholder="Filtruj zadania na tablicy…"
+                value={boardSearch}
+                onChange={(e) => setBoardSearch(e.target.value)}
+              />
+              {(agentFilter !== "all" || priorityFilter !== "all" || attentionOnly || boardSearch) && (
+                <button
+                  type="button"
+                  className="filter-clear-btn"
+                  onClick={() => {
+                    setAgentFilter("all");
+                    setPriorityFilter("all");
+                    setAttentionOnly(false);
+                    setBoardSearch("");
+                  }}
+                >
+                  ✕ Wyczyść
+                </button>
+              )}
+            </div>
+            <span className="kanban-filter-counter">
+              Widoczne: <strong>{visibleTasks.length}</strong> z {tasks.length}
+            </span>
+          </div>
+
           {isMobile && <p className="mobile-hint">Dotknij nagłówka kolumny, aby ją zwinąć. Dotknij karty, aby zobaczyć szczegóły. Przeciąganie kart działa na desktopie.</p>}
           <div className="kanban-scroll">
             <DndContext
@@ -866,6 +1068,7 @@ export default function Dashboard() {
                       isCollapsed={isCollapsed}
                       isMobile={isMobile}
                       isInvalidDrop={isInvalidDrop}
+                      nowSec={nowSec}
                       onToggle={() => toggleCol(status)}
                       onSelectTask={setSelectedTask}
                       onApproveTask={(task) => {
@@ -914,8 +1117,86 @@ export default function Dashboard() {
       <dl><div><dt>Assigned Role</dt><dd>{selectedTask.assignee ? roleName[selectedTask.assignee] || selectedTask.assignee : "Nieprzypisany"}</dd></div><div><dt>Priorytet</dt><dd>P{selectedTask.priority}</dd></div><div><dt>Branch</dt><dd>{selectedTask.branchName || "—"}</dd></div><div><dt>Heartbeat</dt><dd>{relativeTime(selectedTask.lastHeartbeatAt)}</dd></div></dl>
 
       <section><h3>Dependencies</h3><p>{selectedTask.parentIds.length ? `Parents: ${selectedTask.parentIds.join(", ")}` : "Brak"}</p>{selectedTask.childIds.length > 0 && <p>Children: {selectedTask.childIds.join(", ")}</p>}</section>
-      <section><h3>Run history <span>{selectedTask.runs.length}</span></h3>{selectedTask.runs.map((r) => <article className="run" key={r.id}><div><strong>{r.profile || "worker"}</strong><span>{r.outcome || r.status}</span></div><small>{relativeTime(r.startedAt)}</small>{r.summary && <p>{r.summary}</p>}{r.error && <p className="run-error">{r.error}</p>}</article>)}{!selectedTask.runs.length && <p>Brak.</p>}</section>
-      <section><h3>Comments <span>{selectedTask.comments.length}</span></h3>{selectedTask.comments.map((c) => <article className="comment" key={c.id}><div><strong>{c.author}</strong><small>{relativeTime(c.createdAt)}</small></div><p>{c.body}</p></article>)}{!selectedTask.comments.length && <p>Brak.</p>}</section>
+
+      {/* ── Run history ── */}
+      <section className="drawer-section">
+        <div className="section-head">
+          <h3>Run history <span>{selectedTask.runs.length}</span></h3>
+        </div>
+        <div className="run-list">
+          {selectedTask.runs.map((r) => {
+            const durSec = r.endedAt && r.startedAt ? Math.max(0, r.endedAt - r.startedAt) : null;
+            const durText = durSec != null ? (durSec < 60 ? `${durSec}s` : `${Math.floor(durSec / 60)}m ${durSec % 60}s`) : null;
+            const isError = Boolean(r.error || r.outcome === "failed" || r.status === "failed");
+            return (
+              <article className={`run-item ${isError ? "run-error-card" : "run-ok-card"}`} key={r.id}>
+                <div className="run-item-head">
+                  <div>
+                    <strong>{roleName[r.profile || ""] || r.profile || "Worker"}</strong>
+                    {durText && <span className="run-dur-badge">⏱ {durText}</span>}
+                  </div>
+                  <span className={`run-state-tag ${r.outcome || r.status}`}>{r.outcome || r.status}</span>
+                </div>
+                <small className="run-timestamp">{relativeTime(r.startedAt)}</small>
+                {r.summary && <p className="run-summary-text">{r.summary}</p>}
+                {r.error && (
+                  <div className="run-terminal-box">
+                    <div className="run-terminal-top">
+                      <span>TERMINAL TRACE / ERROR</span>
+                      <button
+                        type="button"
+                        className="copy-trace-btn"
+                        onClick={() => {
+                          void copyText(r.error!).then((ok) =>
+                            addToast(ok ? "Skopiowano treść błędu" : "Błąd kopiowania", ok ? "success" : "warning")
+                          );
+                        }}
+                      >
+                        Kopiuj log
+                      </button>
+                    </div>
+                    <pre className="run-terminal-code">{r.error}</pre>
+                  </div>
+                )}
+              </article>
+            );
+          })}
+          {!selectedTask.runs.length && <p className="empty-subtext">Brak zarejestrowanych uruchomień.</p>}
+        </div>
+      </section>
+
+      {/* ── Comments & Notes ── */}
+      <section className="drawer-section">
+        <div className="section-head">
+          <h3>Comments & Notes <span>{selectedTask.comments.length}</span></h3>
+        </div>
+        <form className="drawer-comment-input-box" onSubmit={submitTaskComment}>
+          <textarea
+            value={newCommentText}
+            onChange={(e) => setNewCommentText(e.target.value)}
+            maxLength={2000}
+            rows={2}
+            placeholder="Dodaj notatkę lub wskazówkę CEO dla zespołu..."
+            required
+          />
+          <button type="submit" className="add-note-btn" disabled={submittingComment || !newCommentText.trim()}>
+            {submittingComment ? "Zapisywanie…" : "＋ Dodaj notatkę CEO"}
+          </button>
+        </form>
+        <div className="comments-feed">
+          {selectedTask.comments.map((c) => (
+            <article className="comment-bubble" key={c.id}>
+              <div className="comment-head">
+                <strong>{c.author}</strong>
+                <small>{relativeTime(c.createdAt)}</small>
+              </div>
+              <p>{c.body}</p>
+            </article>
+          ))}
+          {!selectedTask.comments.length && <p className="empty-subtext">Brak komentarzy.</p>}
+        </div>
+      </section>
+
       <section><h3>Historia decyzji <span>{decisions.length}</span></h3>{decisions.map((d) => <article className="decision-log" key={d.id}><div><strong>{d.action}</strong><span className={d.status}>{d.status}</span></div><p>{d.fromStatus} → {d.resultStatus || d.toStatus || "oczekuje"}</p>{d.comment && <p>{d.comment}</p>}<small>{relativeTime(d.createdAt)}</small></article>)}{!decisions.length && <p>Brak.</p>}</section>
     </aside></div>}
   </div>;

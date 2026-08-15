@@ -40,7 +40,14 @@ export default function SecurityPanel() {
   ), [data, actorFilter, toneFilter]);
 
   return <div className="security-panel">
-    <header className="topbar"><div><p className="eyebrow">AUDYT</p><h1>Dziennik audytu</h1></div><div className="top-actions">{data && <span className="updated">Twój adres IP: <code>{data.currentIp}</code></span>}</div></header>
+    <header className="topbar">
+      <div><p className="eyebrow">AUDYT</p><h1>Dziennik audytu</h1></div>
+      <div className="top-actions">
+        <a href="/api/audit/export?format=csv&days=30" download className="digest-top-btn" title="Pobierz pełny dziennik audytu w formacie CSV">📥 Pobierz CSV</a>
+        <a href="/api/audit/export?format=json&days=30" download className="digest-top-btn" title="Pobierz pełny dziennik audytu w formacie JSON">📥 Pobierz JSON</a>
+        {data && <span className="updated">Twój adres IP: <code>{data.currentIp}</code></span>}
+      </div>
+    </header>
 
     {logError && <p className="sec-error">{logError}</p>}
 

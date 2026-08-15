@@ -41,6 +41,9 @@ export default function SearchModal({ open, onClose, data, onSelectBoard, onSele
   if (!open || !data) return null;
 
   const lower = query.toLowerCase().trim();
+  const actionResults = lower
+    ? actions.filter((a) => fuzzyMatch(a.label, lower) || (a.hint && fuzzyMatch(a.hint, lower)))
+    : actions;
   const boardResults = lower ? data.boards.filter((b) => fuzzyMatch(b.name, lower) || fuzzyMatch(b.slug, lower)) : data.boards;
   const taskResults = lower ? data.tasks.filter((t) => fuzzyMatch(t.id, lower) || fuzzyMatch(t.title, lower) || fuzzyMatch(t.assignee || "", lower) || fuzzyMatch(t.status, lower)) : data.tasks.slice(0, 10);
 
@@ -49,14 +52,14 @@ export default function SearchModal({ open, onClose, data, onSelectBoard, onSele
       <div className="search-modal" role="dialog" aria-label="Wyszukiwanie">
         <div className="search-input-row">
           <span className="search-icon">⌕</span>
-          <input ref={inputRef} type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Szukaj zadań, boardów, agentów…" />
+          <input ref={inputRef} type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Szukaj zadań, boardów, akcji…" />
           <kbd>Esc</kbd>
         </div>
         <div className="search-results">
-          {!lower && actions.length > 0 && (
+          {actionResults.length > 0 && (
             <section>
-              <h4>Akcje</h4>
-              {actions.map((a) => (
+              <h4>Polecenia i Akcje</h4>
+              {actionResults.map((a) => (
                 <button key={a.label} className="search-result" onClick={() => { a.onRun(); onClose(); }}>
                   <span className="result-icon">{a.icon}</span>
                   <div><strong>{a.label}</strong>{a.hint && <small>{a.hint}</small>}</div>

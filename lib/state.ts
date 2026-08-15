@@ -126,16 +126,16 @@ export type AuditLogEntry = {
   detail: string | null; ip: string | null; createdAt: number;
 };
 
-export function getAuditLog(limit = 100): AuditLogEntry[] {
+export function getAuditLog(limit = 100, sinceSec = 0): AuditLogEntry[] {
   const db = openState();
   try {
     return db.prepare(
-      "SELECT id,actor,action,target,detail,ip,created_at createdAt FROM audit_log ORDER BY id DESC LIMIT ?"
-    ).all(limit) as AuditLogEntry[];
+      "SELECT id,actor,action,target,detail,ip,created_at createdAt FROM audit_log WHERE created_at >= ? ORDER BY id DESC LIMIT ?"
+    ).all(sinceSec, limit) as AuditLogEntry[];
   } finally { db.close(); }
 }
 
-export type TaskMoveAction = "create" | "move";
+export type TaskMoveAction = "create" | "move" | "comment";
 
 export type MoveRecord = {
   id: string; board: string; taskId: string; action: TaskMoveAction;

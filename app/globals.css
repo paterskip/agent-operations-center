@@ -247,3 +247,68 @@ body.density-compact .metric-grid article{padding:12px}
 .settings-form input:focus{outline:none;border-color:#4da3ff}
 .settings-ok{color:#34d399;font-size:13px;margin:0}
 .settings-err{color:#f87171;font-size:13px;margin:0}
+
+/* ── Live SSE Status Pill & Top Actions ── */
+.live-status-pill{display:inline-flex;align-items:center;gap:6px;font:700 10px ui-monospace,monospace;letter-spacing:.06em;padding:4px 9px;border-radius:20px;transition:all .2s ease}
+.live-status-pill.connected{background:#071c13;border:1px solid #1b4e36;color:#34d399}
+.live-status-pill.reconnecting{background:#1e1708;border:1px solid #5c430e;color:#fbbf24}
+.live-status-pill.offline{background:#1c0d10;border:1px solid #4d1e26;color:#f87171}
+.live-pulse-dot{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block;animation:pulseLive 2s infinite ease-in-out}
+@keyframes pulseLive{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}
+.digest-top-btn{background:#111926;border:1px solid #233144;border-radius:8px;color:#cbd9e8;font-size:11.5px;font-weight:600;padding:6px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s ease}
+.digest-top-btn:hover{background:#172233;border-color:#384f6e;color:#fff}
+
+/* ── Kanban Filter Bar ── */
+.kanban-filter-bar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:12px 0 16px;flex-wrap:wrap;background:#0c121b;border:1px solid #1c2839;border-radius:10px;padding:8px 12px}
+.kanban-filter-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1}
+.filter-toggle-btn{font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:6px;border:1px solid #26384f;background:#131c28;color:#a9bed6;cursor:pointer;transition:all .15s}
+.filter-toggle-btn:hover{background:#1a2738;border-color:#3c5678}
+.filter-toggle-btn.active{background:#381e10;border-color:#7c3e1d;color:#fb923c}
+.filter-select{background:#101723;border:1px solid #26384f;border-radius:6px;color:#dbe6f2;font-size:11.5px;padding:5px 8px;cursor:pointer;outline:none}
+.filter-select:focus{border-color:#4da3ff}
+.filter-search-input{background:#101723;border:1px solid #26384f;border-radius:6px;color:#e6edf6;font-size:11.5px;padding:5px 10px;min-width:160px;outline:none}
+.filter-search-input:focus{border-color:#4da3ff}
+.filter-clear-btn{background:none;border:none;color:#7d8ea3;font-size:11px;cursor:pointer;text-decoration:underline;padding:4px}
+.filter-clear-btn:hover{color:#dbe6f2}
+.kanban-filter-counter{font-size:11.5px;color:#7d8ea3;font-family:ui-monospace,monospace;white-space:nowrap}
+.kanban-filter-counter strong{color:#dbe6f2}
+
+/* ── SLA Bottleneck Warnings on Cards ── */
+.sla-badge.warn{background:#2a1b08;border:1px solid #5a380e;color:#fbbf24}
+.sla-badge.overdue{background:#290d12;border:1px solid #631d27;color:#f87171;animation:pulseLive 2.5s infinite ease-in-out}
+
+/* ── Run History & Dark Terminal Log in Drawer ── */
+.drawer-section{margin-top:20px;display:flex;flex-direction:column;gap:10px}
+.run-list{display:flex;flex-direction:column;gap:8px}
+.run-item{background:#0d131d;border:1px solid #1c2738;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:6px}
+.run-item.run-error-card{border-color:#471c22}
+.run-item-head{display:flex;justify-content:space-between;align-items:center}
+.run-item-head strong{color:#e2ecf7;font-size:12.5px}
+.run-dur-badge{font:600 10.5px ui-monospace,monospace;color:#7d8ea3;margin-left:8px;background:rgba(125,142,163,.1);padding:1px 5px;border-radius:4px}
+.run-state-tag{font:700 9px ui-monospace,monospace;padding:2px 6px;border-radius:4px;text-transform:uppercase;background:#152233;color:#8cb4dc}
+.run-state-tag.failed{background:#2e1116;color:#f87171}
+.run-state-tag.completed, .run-state-tag.success{background:#0c2417;color:#34d399}
+.run-timestamp{color:#6c7f95;font-size:11px}
+.run-summary-text{margin:4px 0 0;font-size:12px;line-height:1.45;color:#bac8d7}
+.run-terminal-box{background:#06090e;border:1px solid #3d1c22;border-radius:6px;padding:8px 10px;margin-top:6px}
+.run-terminal-top{display:flex;justify-content:space-between;align-items:center;font:700 9px ui-monospace,monospace;color:#f87171;letter-spacing:.08em;margin-bottom:6px}
+.copy-trace-btn{background:#201013;border:1px solid #4a1d25;color:#fca5a5;font-size:10px;padding:2px 6px;border-radius:4px;cursor:pointer;transition:background .15s}
+.copy-trace-btn:hover{background:#30181c}
+.run-terminal-code{margin:0;font:11px/1.5 ui-monospace,monospace;color:#fca5a5;white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto}
+.empty-subtext{color:#6c7f95;font-size:12px;font-style:italic;margin:4px 0}
+
+/* ── Comments & CEO Note in Drawer ── */
+.drawer-comment-input-box{display:flex;flex-direction:column;gap:8px;background:#0c121a;border:1px solid #1e2a3b;border-radius:8px;padding:10px}
+.drawer-comment-input-box textarea{background:#080c12;border:1px solid #233144;border-radius:6px;padding:8px;color:#e6edf6;font-size:12.5px;resize:vertical;outline:none;font-family:inherit}
+.drawer-comment-input-box textarea:focus{border-color:#4da3ff}
+.add-note-btn{align-self:flex-end;background:#1a293d;border:1px solid #2d4566;color:#9bc9ff;font-size:11.5px;font-weight:600;padding:6px 12px;border-radius:6px;cursor:pointer;transition:all .15s}
+.add-note-btn:hover{background:#223752;border-color:#406494}
+.comments-feed{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.comment-bubble{background:#0c131d;border:1px solid #1a2535;border-radius:8px;padding:10px 12px}
+.comment-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:11.5px;color:#8fa2b8}
+.comment-bubble p{margin:0;font-size:12px;line-height:1.45;color:#c9d7e5}
+.sound-top-btn{background:#111926;border:1px solid #233144;border-radius:8px;font-size:13px;padding:6px 10px;cursor:pointer;transition:all .15s ease}
+.sound-top-btn:hover{background:#172233;border-color:#384f6e}
+.sound-top-btn.off{opacity:.45}
+
+

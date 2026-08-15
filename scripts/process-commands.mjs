@@ -177,6 +177,14 @@ export function processMove(db, exec = defaultExec) {
         db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','task.create.done',?,?,NULL,?)")
           .run(`${move.board}/${createdId}`, `move.id=${move.id}`, ts);
       })();
+    } else if (move.action === "comment") {
+      exec(move.board, ["comment", move.taskId, move.comment, "--author", "CEO Web", "--max-len", "2000"]);
+      db.transaction(() => {
+        db.prepare("UPDATE task_moves SET status='done', result_status='commented', last_error=NULL, updated_at=? WHERE id=?")
+          .run(ts, move.id);
+        db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','task.comment.done',?,?,NULL,?)")
+          .run(`${move.board}/${move.taskId}`, `move.id=${move.id}`, ts);
+      })();
     } else {
       const task = taskState(move.board, move.taskId, exec);
       if (task.status !== move.fromStatus) throw new Error(`Task status changed from ${move.fromStatus} to ${task.status}`);

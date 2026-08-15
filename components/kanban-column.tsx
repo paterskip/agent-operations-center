@@ -14,6 +14,7 @@ interface KanbanColumnProps {
   isCollapsed: boolean;
   isMobile: boolean;
   isInvalidDrop?: boolean;
+  nowSec?: number;
   onToggle: () => void;
   onSelectTask: (task: TaskCard) => void;
   onApproveTask?: (task: TaskCard) => void;
@@ -28,6 +29,7 @@ export function KanbanColumn({
   isCollapsed,
   isMobile,
   isInvalidDrop,
+  nowSec,
   onToggle,
   onSelectTask,
   onApproveTask,
@@ -56,6 +58,7 @@ export function KanbanColumn({
               <KanbanTaskCard
                 key={task.id}
                 task={task}
+                nowSec={nowSec}
                 onSelect={onSelectTask}
                 onApprove={onApproveTask}
                 onCopyId={onCopyId}

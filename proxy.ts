@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 const rateMap = new Map<string, { count: number; reset: number }>();
 const RATE_LIMIT = 60;
 const RATE_WINDOW_MS = 60_000;
+const MAX_RATE_ENTRIES = 5_000;
 
 function contentSecurityPolicy(nonce: string) {
   // React dev mode requires eval (HMR, devtools callstack reconstruction); production never gets it.
@@ -18,13 +19,27 @@ function rateLimited(request: NextRequest): boolean {
   const now = Date.now();
   const key = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
   const entry = rateMap.get(key);
-  if (!entry || now > entry.reset) { rateMap.set(key, { count: 1, reset: now + RATE_WINDOW_MS }); return false; }
+  if (!entry || now > entry.reset) {
+    if (rateMap.size >= MAX_RATE_ENTRIES) {
+      // LRU eviction: remove the oldest 500 entries when capacity is reached
+      let removed = 0;
+      for (const k of rateMap.keys()) {
+        rateMap.delete(k);
+        if (++removed >= 500) break;
+      }
+    }
+    rateMap.set(key, { count: 1, reset: now + RATE_WINDOW_MS });
+    return false;
+  }
   entry.count++;
   return entry.count > RATE_LIMIT;
 }
 
 // Clean up stale entries every 2 minutes (unref so it doesn't keep the process alive)
-setInterval(() => { const now = Date.now(); for (const [key, entry] of rateMap) if (now > entry.reset) rateMap.delete(key); }, 120_000).unref();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateMap) if (now > entry.reset) rateMap.delete(key);
+}, 120_000).unref();
 
 export function proxy(request: NextRequest) {
   // Next.js reads the request CSP nonce and adds it to its inline bootstrap
