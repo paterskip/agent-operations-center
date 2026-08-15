@@ -21,8 +21,8 @@ export function ActivityHeatmap({ data, agents }: { data: AgentActivityCell[]; a
   }
 
   const days: string[] = [];
-  // eslint-disable-next-line react-hooks/purity -- okno 84 dni jest stabilne w ciągu doby; liczone raz przy montażu
   for (let i = DAYS - 1; i >= 0; i--) {
+    // eslint-disable-next-line react-hooks/purity -- okno 84 dni jest stabilne w ciągu doby; liczone raz przy montażu
     days.push(new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10));
   }
 
