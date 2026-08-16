@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { AgentActivityCell } from "@/lib/trends";
 
 const DAYS = 84; // 12 tygodni
@@ -11,19 +12,31 @@ function cellColor(n: number): string {
   return "var(--hm3)";
 }
 
+/** Okno dni [today-days+1 .. today] jako lista ISO dat (deterministyczne dla danego `todayISO`). */
+export function dayWindow(todayISO: string, days = DAYS): string[] {
+  const ref = new Date(`${todayISO}T00:00:00Z`).getTime();
+  const out: string[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    out.push(new Date(ref - i * 86400_000).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
 /** Pasek aktywności per agent (84 dni) — styl heatmapy GitHuba, czysty CSS. */
-export function ActivityHeatmap({ data, agents }: { data: AgentActivityCell[]; agents: { slug: string; name: string }[] }) {
+export function ActivityHeatmap({ data, agents, today }: {
+  data: AgentActivityCell[];
+  agents: { slug: string; name: string }[];
+  /** Referencyjna data (ISO) zakończenia okna. Domyślnie bieżąca, zamrożona raz przy montażu. */
+  today?: string;
+}) {
+  const [refDate] = useState(() => today ?? new Date().toISOString().slice(0, 10));
+  const days = dayWindow(refDate);
+
   const byAgent = new Map<string, Map<string, number>>();
   for (const c of data) {
     let m = byAgent.get(c.agent);
     if (!m) { m = new Map(); byAgent.set(c.agent, m); }
     m.set(c.date, c.count);
-  }
-
-  const days: string[] = [];
-  for (let i = DAYS - 1; i >= 0; i--) {
-    // eslint-disable-next-line react-hooks/purity -- okno 84 dni jest stabilne w ciągu doby; liczone raz przy montażu
-    days.push(new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10));
   }
 
   const rows = agents.filter((a) => byAgent.has(a.slug));
