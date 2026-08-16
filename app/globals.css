@@ -1837,3 +1837,144 @@ button, a {
   .nav-item span { font-size: 17px; }
   .main-content { margin-left: 0; padding: 20px 14px max(88px, calc(env(safe-area-inset-bottom, 0px) + 64px)); }
 }
+
+/* ── Mobile Responsive Enhancements (Neo-Brutalist Mobile UX) ── */
+.more-menu {
+  position: absolute;
+  right: 14px;
+  bottom: calc(100% + 10px);
+  min-width: 200px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.7);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.more-item:hover, .more-item.active {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+  color: var(--text-main);
+}
+
+.mobile-hint {
+  display: none;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin: -4px 0 12px;
+}
+
+@media (max-width: 760px) {
+  .mobile-hint { display: block; }
+  .mobile-more { display: none !important; }
+  
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .topbar h1 {
+    font-size: 24px;
+  }
+
+  .top-actions {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .shortcut-hint { display: none; }
+
+  .metric-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .metric-grid article {
+    padding: 14px 16px;
+  }
+
+  .metric-grid strong {
+    font-size: 24px;
+  }
+
+  .agent-grid {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .agent-card {
+    min-width: 220px;
+    flex-shrink: 0;
+  }
+
+  .kanban-board {
+    min-width: 100%;
+    grid-template-columns: repeat(8, 260px);
+  }
+
+  .task-drawer {
+    width: 100%;
+    padding: 20px;
+    padding-bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 74px));
+  }
+
+  .task-drawer h2 {
+    font-size: 20px;
+  }
+
+  .scorecard-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .quick-actions {
+    gap: 8px;
+  }
+
+  .action-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  .toast-container {
+    inset: auto 14px calc(64px + env(safe-area-inset-bottom, 0px) + 12px) 14px;
+  }
+
+  .toast {
+    max-width: 100%;
+  }
+
+  .heatmap-label {
+    width: 130px;
+    min-width: 130px;
+  }
+}
