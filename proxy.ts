@@ -8,7 +8,7 @@ const MAX_RATE_ENTRIES = 5_000;
 function contentSecurityPolicy(nonce: string) {
   // React dev mode requires eval (HMR, devtools callstack reconstruction); production never gets it.
   const scriptSrc = process.env.NODE_ENV !== "production" ? `'self' 'unsafe-eval' 'nonce-${nonce}'` : `'self' 'nonce-${nonce}'`;
-  return `default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src ${scriptSrc}; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests`;
+  return `default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src ${scriptSrc}; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests`;
 }
 
 function denied(body: string, status: number, csp: string, headers: Record<string, string> = {}) {
