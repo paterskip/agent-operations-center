@@ -1122,7 +1122,10 @@ export default function Dashboard() {
     {selectedTask && <div className="drawer-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) setSelectedTask(null); }}><aside className="task-drawer" role="dialog" aria-modal="true" aria-labelledby="task-title" ref={drawerRef} tabIndex={-1}>
       <header><div><button type="button" className="task-id-copy" title={`Kliknij, aby skopiować ${selectedTask.id}`} aria-label={`Kopiuj identyfikator zadania ${selectedTask.id}`} onClick={() => { void copyText(selectedTask.id).then((ok) => addToast(ok ? `Skopiowano ${selectedTask.id}` : `Nie udało się skopiować ${selectedTask.id}`, ok ? "success" : "warning")); }}><code>{selectedTask.id}</code><i aria-hidden="true">⧉</i></button><span className={`status-badge ${selectedTask.status}`} title={statusHelp[selectedTask.status] || ""}>{selectedTask.status}</span></div><button aria-label="Zamknij" onClick={() => setSelectedTask(null)}>×</button></header>
       <h2 id="task-title">{selectedTask.title}</h2>
-      <TaskBody body={selectedTask.body} />
+      <TaskBody
+        body={selectedTask.body}
+        onOpenTask={(tid) => openTask(selectedTask.boardSlug, tid)}
+      />
 
       <section className="decision-box"><h3>Decyzja CEO</h3>
         <p>Akcja dotyczy tylko tej karty. PM decyduje, który agent podejmie dalszą pracę.</p>
@@ -1143,7 +1146,53 @@ export default function Dashboard() {
 
       <dl><div><dt>Assigned Role</dt><dd>{selectedTask.assignee ? roleName[selectedTask.assignee] || selectedTask.assignee : "Nieprzypisany"}</dd></div><div><dt>Priorytet</dt><dd>P{selectedTask.priority}</dd></div><div><dt>Branch</dt><dd>{selectedTask.branchName || "—"}</dd></div><div><dt>Heartbeat</dt><dd>{relativeTime(selectedTask.lastHeartbeatAt)}</dd></div></dl>
 
-      <section><h3>Dependencies</h3><p>{selectedTask.parentIds.length ? `Parents: ${selectedTask.parentIds.join(", ")}` : "Brak"}</p>{selectedTask.childIds.length > 0 && <p>Children: {selectedTask.childIds.join(", ")}</p>}</section>
+      <section className="drawer-section">
+        <div className="section-head">
+          <h3>Dependencies (Powiązania)</h3>
+        </div>
+        <div className="dependencies-box">
+          <div className="dep-row">
+            <span className="dep-label">Nadrzędne (Parents):</span>
+            {selectedTask.parentIds.length > 0 ? (
+              <div className="dep-tags">
+                {selectedTask.parentIds.map((pid) => (
+                  <button
+                    key={pid}
+                    type="button"
+                    className="dep-task-btn"
+                    onClick={() => openTask(selectedTask.boardSlug, pid)}
+                    title={`Otwórz zadanie ${pid}`}
+                  >
+                    ↖ {pid}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className="dep-empty">Brak</span>
+            )}
+          </div>
+          <div className="dep-row">
+            <span className="dep-label">Podzadania (Subtasks):</span>
+            {selectedTask.childIds.length > 0 ? (
+              <div className="dep-tags">
+                {selectedTask.childIds.map((cid) => (
+                  <button
+                    key={cid}
+                    type="button"
+                    className="dep-task-btn child"
+                    onClick={() => openTask(selectedTask.boardSlug, cid)}
+                    title={`Otwórz podzadanie ${cid}`}
+                  >
+                    ↘ {cid}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className="dep-empty">Brak</span>
+            )}
+          </div>
+        </div>
+      </section>
 
       {/* ── Run history ── */}
       <section className="drawer-section">

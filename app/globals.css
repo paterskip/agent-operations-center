@@ -311,4 +311,21 @@ body.density-compact .metric-grid article{padding:12px}
 .sound-top-btn:hover{background:#172233;border-color:#384f6e}
 .sound-top-btn.off{opacity:.45}
 
+/* ── Interactive Task ID Pills in TaskBody ── */
+.task-ref-pill{display:inline-block;vertical-align:middle;font:600 11px ui-monospace,monospace;color:#60a5fa;background:rgba(96,165,250,.12);border:1px solid rgba(96,165,250,.28);padding:1px 6px;border-radius:4px;cursor:pointer;transition:all .15s;text-decoration:none;margin:0 2px}
+button.task-ref-pill{cursor:pointer;line-height:normal}
+button.task-ref-pill:hover{background:rgba(96,165,250,.25);border-color:#60a5fa;color:#93c5fd}
+
+/* ── Interactive Dependencies in Drawer ── */
+.dependencies-box{display:flex;flex-direction:column;gap:8px;background:#0c131d;border:1px solid #1a2535;border-radius:8px;padding:10px 12px}
+.dep-row{display:flex;flex-direction:column;gap:5px}
+.dep-label{font-size:11px;font-weight:600;color:#7d8ea3;text-transform:uppercase;letter-spacing:.04em}
+.dep-tags{display:flex;flex-wrap:wrap;gap:6px}
+.dep-task-btn{display:inline-flex;align-items:center;gap:4px;background:#142030;border:1px solid #24354d;border-radius:6px;color:#93c5fd;font:600 11.5px ui-monospace,monospace;padding:3px 8px;cursor:pointer;transition:all .15s}
+.dep-task-btn:hover{background:#1e324c;border-color:#3b82f6;color:#dbeafe}
+.dep-task-btn.child{color:#a7f3d0;border-color:#1e3a2f;background:#0d241c}
+.dep-task-btn.child:hover{background:#15392d;border-color:#10b981;color:#ecfdf5}
+.dep-empty{font-size:11.5px;color:#55687d;font-style:italic}
+
+
 

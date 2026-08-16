@@ -40,19 +40,52 @@ export default function SearchModal({ open, onClose, data, onSelectBoard, onSele
 
   if (!open || !data) return null;
 
+  const roleAliases: Record<string, string[]> = {
+    backend: ["coder-backend", "backend"],
+    frontend: ["coder-frontend", "frontend"],
+    sec: ["security", "sec"],
+    security: ["security", "sec"],
+    pm: ["pm"],
+    coder: ["coder", "coder-parallel"],
+    designer: ["designer"],
+    tester: ["tester", "qa"],
+    qa: ["tester", "qa"],
+    reviewer: ["reviewer"],
+  };
+
   const lower = query.toLowerCase().trim();
-  const actionResults = lower
+  const isRoleFilter = lower.startsWith("@");
+  const roleQuery = isRoleFilter ? lower.slice(1).trim() : "";
+  const matchedSlugs = isRoleFilter && roleQuery ? roleAliases[roleQuery] || [roleQuery] : [];
+
+  const actionResults = isRoleFilter
+    ? []
+    : lower
     ? actions.filter((a) => fuzzyMatch(a.label, lower) || (a.hint && fuzzyMatch(a.hint, lower)))
     : actions;
-  const boardResults = lower ? data.boards.filter((b) => fuzzyMatch(b.name, lower) || fuzzyMatch(b.slug, lower)) : data.boards;
-  const taskResults = lower ? data.tasks.filter((t) => fuzzyMatch(t.id, lower) || fuzzyMatch(t.title, lower) || fuzzyMatch(t.assignee || "", lower) || fuzzyMatch(t.status, lower)) : data.tasks.slice(0, 10);
+  const boardResults = isRoleFilter
+    ? []
+    : lower
+    ? data.boards.filter((b) => fuzzyMatch(b.name, lower) || fuzzyMatch(b.slug, lower))
+    : data.boards;
+  const taskResults = isRoleFilter
+    ? data.tasks.filter((t) => (t.assignee ? matchedSlugs.some((s) => t.assignee?.toLowerCase().includes(s)) : false))
+    : lower
+    ? data.tasks.filter((t) => fuzzyMatch(t.id, lower) || fuzzyMatch(t.title, lower) || fuzzyMatch(t.assignee || "", lower) || fuzzyMatch(t.status, lower))
+    : data.tasks.slice(0, 10);
 
   return (
     <div className="search-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) onClose(); }}>
       <div className="search-modal" role="dialog" aria-label="Wyszukiwanie">
         <div className="search-input-row">
           <span className="search-icon">⌕</span>
-          <input ref={inputRef} type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Szukaj zadań, boardów, akcji…" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Szukaj zadań, boardów, akcji lub @rola (np. @backend)..."
+          />
           <kbd>Esc</kbd>
         </div>
         <div className="search-results">

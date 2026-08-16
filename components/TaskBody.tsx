@@ -3,11 +3,10 @@
 import { useMemo, useState } from "react";
 import { summarizeBody, type TaskSection } from "@/lib/body-summary";
 
-/** Bezpieczne formatowanie prostych znaczników Markdown w linijce (pogrubienie, inline code). */
-function renderInlineMarkdown(text: string) {
-  // Rozdzielamy po elementach `code` lub **bold**
+/** Bezpieczne formatowanie prostych znaczników Markdown w linijce (pogrubienie, inline code, powiązania zadań). */
+function renderInlineMarkdown(text: string, onOpenTask?: (taskId: string) => void) {
   const parts: (string | React.ReactNode)[] = [];
-  const regex = /(`[^`]+`|\*\*[^*]+\*\*)/g;
+  const regex = /(`[^`]+`|\*\*[^*]+\*\*|\b[A-Za-z0-9_-]+-\d+\b|\bT-\d+\b)/g;
   let lastIdx = 0;
   let match: RegExpExecArray | null;
 
@@ -20,6 +19,24 @@ function renderInlineMarkdown(text: string) {
       parts.push(<code key={match.index}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith("**") && token.endsWith("**")) {
       parts.push(<strong key={match.index}>{token.slice(2, -2)}</strong>);
+    } else if (/\b([A-Za-z0-9_-]+-\d+|T-\d+)\b/.test(token)) {
+      parts.push(
+        onOpenTask ? (
+          <button
+            key={match.index}
+            type="button"
+            className="task-ref-pill"
+            onClick={() => onOpenTask(token)}
+            title={`Otwórz powiązane zadanie ${token}`}
+          >
+            #{token}
+          </button>
+        ) : (
+          <span key={match.index} className="task-ref-pill">
+            #{token}
+          </span>
+        )
+      );
     }
     lastIdx = regex.lastIndex;
   }
@@ -30,7 +47,7 @@ function renderInlineMarkdown(text: string) {
 }
 
 /** Renderuje treść sekcji specyfikacji PM. */
-function SectionBlock({ section }: { section: TaskSection }) {
+function SectionBlock({ section, onOpenTask }: { section: TaskSection; onOpenTask?: (taskId: string) => void }) {
   const isList = section.lines.some((l) => /^[-*•)\d.]+\s/.test(l.trim()));
   const items = section.lines.map((l) => l.trim()).filter(Boolean);
 
@@ -45,7 +62,7 @@ function SectionBlock({ section }: { section: TaskSection }) {
             return (
               <li key={idx} className={isChecked ? "checked" : ""}>
                 <span className="spec-bullet">{isChecked ? "✓" : "•"}</span>
-                <span>{renderInlineMarkdown(clean)}</span>
+                <span>{renderInlineMarkdown(clean, onOpenTask)}</span>
               </li>
             );
           })}
@@ -53,7 +70,7 @@ function SectionBlock({ section }: { section: TaskSection }) {
       ) : (
         <div className="task-spec-text">
           {items.map((line, idx) => (
-            <p key={idx}>{renderInlineMarkdown(line)}</p>
+            <p key={idx}>{renderInlineMarkdown(line, onOpenTask)}</p>
           ))}
         </div>
       )}
@@ -62,7 +79,7 @@ function SectionBlock({ section }: { section: TaskSection }) {
 }
 
 /** Ustrukturyzowany opis zadania: Cel + Kryteria sukcesu + Pełna specyfikacja PM. */
-export function TaskBody({ body }: { body: string | null }) {
+export function TaskBody({ body, onOpenTask }: { body: string | null; onOpenTask?: (taskId: string) => void }) {
   const [open, setOpen] = useState(false);
   const { goal, criteria, sections, full, isLong } = useMemo(() => summarizeBody(body), [body]);
 
@@ -71,7 +88,7 @@ export function TaskBody({ body }: { body: string | null }) {
       {/* 1. Wyróżniony Cel */}
       <div className="task-goal-box">
         <span className="task-goal-badge">CEL ZADANIA</span>
-        <p className="task-goal-text">{renderInlineMarkdown(goal)}</p>
+        <p className="task-goal-text">{renderInlineMarkdown(goal, onOpenTask)}</p>
       </div>
 
       {/* 2. Kryteria sukcesu (Acceptance Criteria) */}
@@ -85,7 +102,7 @@ export function TaskBody({ body }: { body: string | null }) {
             {criteria.map((crit, idx) => (
               <li key={idx} className="task-criteria-item">
                 <span className="task-criteria-check" aria-hidden="true">✓</span>
-                <span>{renderInlineMarkdown(crit)}</span>
+                <span>{renderInlineMarkdown(crit, onOpenTask)}</span>
               </li>
             ))}
           </ul>
@@ -107,7 +124,7 @@ export function TaskBody({ body }: { body: string | null }) {
       {open && (
         <div className="task-spec-container">
           {sections.length > 0 ? (
-            sections.map((sec, idx) => <SectionBlock key={idx} section={sec} />)
+            sections.map((sec, idx) => <SectionBlock key={idx} section={sec} onOpenTask={onOpenTask} />)
           ) : (
             <pre className="task-body-full">{full}</pre>
           )}
