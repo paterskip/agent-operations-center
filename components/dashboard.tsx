@@ -625,6 +625,36 @@ export default function Dashboard() {
     }
   }
 
+  // ── Inactivity Auto-Lock (10 minutes safety logout) ──
+  const performLogout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
+    window.location.reload();
+  }, []);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    const INACTIVITY_LIMIT_MS = 10 * 60 * 1000; // 10 minut
+
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        addToast("Wylogowano automatycznie po 10 minutach braku aktywności", "warning");
+        void performLogout();
+      }, INACTIVITY_LIMIT_MS);
+    };
+
+    const events = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"];
+    events.forEach((evt) => window.addEventListener(evt, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      clearTimeout(timer);
+      events.forEach((evt) => window.removeEventListener(evt, resetTimer));
+    };
+  }, [addToast, performLogout]);
+
   // ── Task Creator: submit ──
   async function submitNewTask(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault();
@@ -864,6 +894,9 @@ export default function Dashboard() {
         <button className="nav-item" onClick={() => setSearchOpen(true)}><span>⌕</span> Search <kbd>⌘K</kbd></button>
         <button className={`nav-item mobile-more ${view === "security" ? "active" : ""}`} onClick={() => setView("security")}><span>⚿</span> Audyt</button>
         <button className={`nav-item mobile-more ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>⚙</span> Ustawienia</button>
+        <button type="button" className="nav-item logout-btn" onClick={() => void performLogout()} title="Wyloguj z panelu CEO">
+          <span>⏻</span> Wyloguj
+        </button>
         {isMobile && <button className={`nav-item more-toggle ${moreOpen ? "active" : ""}`} onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} aria-haspopup="menu"><span>⋯</span> Więcej</button>}
       </nav>
       {isMobile && moreOpen && <div className="more-menu" role="menu" aria-label="Więcej opcji">
