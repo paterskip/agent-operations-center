@@ -432,13 +432,29 @@ export default function Dashboard() {
   const openTask = useCallback((boardSlug: string, taskOrId: TaskCard | string) => {
     const taskId = typeof taskOrId === "string" ? taskOrId : taskOrId.id;
     setView("board");
-    if (board !== boardSlug) {
-      selectBoard(boardSlug);
-    }
     if (typeof taskOrId !== "string") {
       setSelectedTask(taskOrId);
+      if (board !== boardSlug) {
+        selectBoard(boardSlug);
+      }
     } else {
-      setSelectedTask(tasksRef.current.find((t) => t.id === taskId) || null);
+      if (board !== boardSlug) {
+        selectBoard(boardSlug);
+      }
+      const existing = tasksRef.current.find((t) => t.id === taskId);
+      if (existing) {
+        setSelectedTask(existing);
+      } else {
+        void fetch(`/api/snapshot?board=${encodeURIComponent(boardSlug)}`, { cache: "no-store" })
+          .then((r) => (r.ok ? (r.json() as Promise<DashboardSnapshot>) : null))
+          .then((snap) => {
+            if (snap) {
+              const t = snap.tasks.find((item) => item.id === taskId);
+              if (t) setSelectedTask(t);
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, [board, selectBoard]);
 
@@ -966,7 +982,56 @@ export default function Dashboard() {
             <div className="idea-actions"><button type="button" disabled={submittingIdea} onClick={(ev) => { const f = ev.currentTarget.form; if (f) void submitIdea(f, "draft"); }}>Zapisz szkic</button><button className="primary" type="submit" disabled={submittingIdea}>{submittingIdea ? "Wysyłanie…" : "Wyślij PM do analizy"}</button></div>
             {ideaMessage && <p className="form-message">{ideaMessage}</p>}
           </form>
-          <div className="idea-list"><header><strong>Pomysły i analizy</strong><span>{ideas.length}</span></header>{ideas.map((idea) => <article key={idea.id}><div><span className={`idea-status ${idea.status}`}>{idea.status}</span><code>{idea.project} · P{idea.priority}</code></div><h3>{idea.title}</h3><p>{idea.description}</p><footer><span>{idea.hermesTaskId ? `Hermes: ${idea.hermesTaskId}` : idea.mode === "draft" ? "Szkic lokalny" : "Oczekuje na bridge"}</span><time>{relativeTime(idea.updatedAt)}</time></footer></article>)}{!ideas.length && <div className="empty-activity"><span>＋</span><p><button onClick={() => { const f = document.querySelector(".idea-form") as HTMLFormElement | null; f?.querySelector<HTMLInputElement>("input")?.focus(); }}>Dodaj pierwszy pomysł dla PM →</button></p></div>}</div>
+          <div className="idea-list">
+            <header><strong>Pomysły i analizy</strong><span>{ideas.length}</span></header>
+            {ideas.map((idea) => (
+              <article
+                key={idea.id}
+                className={`idea-card ${idea.hermesTaskId ? "clickable" : ""}`}
+                onClick={() => {
+                  if (idea.hermesTaskId) {
+                    openTask("portfolio", idea.hermesTaskId);
+                  }
+                }}
+                title={idea.hermesTaskId ? "Kliknij, aby otworzyć powiązane zadanie w Hermesie" : undefined}
+              >
+                <div>
+                  <span className={`idea-status ${idea.status}`}>{idea.status}</span>
+                  <code>{idea.project} · P{idea.priority}</code>
+                </div>
+                <h3>{idea.title}</h3>
+                <p>{idea.description}</p>
+                <footer>
+                  {idea.hermesTaskId ? (
+                    <button
+                      type="button"
+                      className="idea-hermes-link-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openTask("portfolio", idea.hermesTaskId!);
+                      }}
+                      title={`Otwórz zadanie ${idea.hermesTaskId} w Hermesie`}
+                    >
+                      Hermes: <strong>{idea.hermesTaskId}</strong> ↗
+                    </button>
+                  ) : (
+                    <span>{idea.mode === "draft" ? "Szkic lokalny" : "Oczekuje na bridge"}</span>
+                  )}
+                  <time>{relativeTime(idea.updatedAt)}</time>
+                </footer>
+              </article>
+            ))}
+            {!ideas.length && (
+              <div className="empty-activity">
+                <span>＋</span>
+                <p>
+                  <button onClick={() => { const f = document.querySelector(".idea-form") as HTMLFormElement | null; f?.querySelector<HTMLInputElement>("input")?.focus(); }}>
+                    Dodaj pierwszy pomysł dla PM →
+                  </button>
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
