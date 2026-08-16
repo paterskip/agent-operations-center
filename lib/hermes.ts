@@ -132,7 +132,15 @@ const fallbackDescriptions: Record<string, string> = {
   default: "General task execution & operations",
 };
 
+let cachedProfiles: Map<string, { name: string; description: string }> | null = null;
+let cachedProfilesExpiry = 0;
+
 function profileMeta(): Map<string, { name: string; description: string }> {
+  const now = Date.now();
+  if (cachedProfiles && now < cachedProfilesExpiry) {
+    return cachedProfiles;
+  }
+
   const profiles = new Map<string, { name: string; description: string }>();
   for (const slug of (process.env.AOC_AGENTS || "pm,coder-backend,coder-frontend,coder,coder-parallel,designer,tester,reviewer,security").split(",").map((item) => item.trim()).filter(Boolean)) {
     profiles.set(slug, {
@@ -140,19 +148,22 @@ function profileMeta(): Map<string, { name: string; description: string }> {
       description: fallbackDescriptions[slug] || "Hermes operations specialist",
     });
   }
-  if (!fs.existsSync(/* turbopackIgnore: true */ profilesRoot)) return profiles;
-  for (const slug of fs.readdirSync(/* turbopackIgnore: true */ profilesRoot).sort()) {
-    const profilePath = path.join(profilesRoot, slug, "profile.yaml");
-    if (!fs.existsSync(profilePath)) continue;
-    const raw = fs.readFileSync(profilePath, "utf8");
-    const nameMatch = raw.match(/^name:\s*(.+)$/m);
-    const descMatch = raw.match(/^description:\s*([\s\S]*?)(?=^\w|\Z)/m);
-    const fallback = profiles.get(slug);
-    profiles.set(slug, {
-      name: (nameMatch?.[1] || "").trim() || fallback?.name || fallbackNames[slug] || slug,
-      description: (descMatch?.[1] || "").replace(/\n\s+/g, " ").trim() || fallback?.description || fallbackDescriptions[slug] || "Hermes operations specialist",
-    });
+  if (fs.existsSync(/* turbopackIgnore: true */ profilesRoot)) {
+    for (const slug of fs.readdirSync(/* turbopackIgnore: true */ profilesRoot).sort()) {
+      const profilePath = path.join(profilesRoot, slug, "profile.yaml");
+      if (!fs.existsSync(profilePath)) continue;
+      const raw = fs.readFileSync(profilePath, "utf8");
+      const nameMatch = raw.match(/^name:\s*(.+)$/m);
+      const descMatch = raw.match(/^description:\s*([\s\S]*?)(?=^\w|\Z)/m);
+      const fallback = profiles.get(slug);
+      profiles.set(slug, {
+        name: (nameMatch?.[1] || "").trim() || fallback?.name || fallbackNames[slug] || slug,
+        description: (descMatch?.[1] || "").replace(/\n\s+/g, " ").trim() || fallback?.description || fallbackDescriptions[slug] || "Hermes operations specialist",
+      });
+    }
   }
+  cachedProfiles = profiles;
+  cachedProfilesExpiry = now + 30_000;
   return profiles;
 }
 

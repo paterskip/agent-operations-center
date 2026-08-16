@@ -6,14 +6,24 @@ import path from "node:path";
 const statePath = process.env.AOC_STATE_DB || "/data/state/aoc.db";
 
 let isBrokerRunning = false;
+let hasPendingTrigger = false;
 
 /**
  * Pobudza brokera Hermesa natychmiast po zapisaniu zadania/pomysłu/decyzji (model Event-Driven).
  * Działa asynchronicznie w tle i nie blokuje odpowiedzi HTTP do przeglądarki.
+ * Wyposażony w flagę hasPendingTrigger, która gwarantuje wywołanie kolejnego cyklu,
+ * jeśli nowe zdarzenie nadejdzie w trakcie trwania bieżącego przetwarzania.
  */
 export function triggerBroker() {
-  if (isBrokerRunning || process.env.NODE_ENV === "test") return;
+  if (process.env.NODE_ENV === "test") return;
+
+  if (isBrokerRunning) {
+    hasPendingTrigger = true;
+    return;
+  }
+
   isBrokerRunning = true;
+  hasPendingTrigger = false;
 
   const scriptPath = path.join(process.cwd(), "scripts", "process-commands.mjs");
   try {
@@ -30,10 +40,18 @@ export function triggerBroker() {
       },
       () => {
         isBrokerRunning = false;
+        if (hasPendingTrigger) {
+          hasPendingTrigger = false;
+          triggerBroker();
+        }
       }
     );
   } catch {
     isBrokerRunning = false;
+    if (hasPendingTrigger) {
+      hasPendingTrigger = false;
+      triggerBroker();
+    }
   }
 }
 
