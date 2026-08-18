@@ -1288,26 +1288,34 @@ pre code {
 /* ── Quick Actions (Overview) ── */
 .quick-actions {
   display: flex;
+  align-items: center;
   gap: 12px;
   margin: 0 0 28px;
   flex-wrap: wrap;
 }
 
 .action-btn {
+  height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.75rem;
   background-color: var(--bg-glass);
   color: var(--text-main);
   font-family: var(--font-display);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  padding: 0.85rem 1.6rem;
+  line-height: 1;
+  padding: 0 1.5rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.2s ease;
 }
 
@@ -1885,14 +1893,22 @@ pre code {
 
 .creator-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 18px;
 }
 
 .creator-actions button {
-  padding: 10px 22px;
-  border-radius: var(--radius-sm);
+  height: 38px;
+  min-height: 38px;
+  max-height: 38px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
+  border-radius: var(--radius-xs);
   border: 1px solid var(--border-subtle);
   background: var(--bg-surface-elevated);
   cursor: pointer;
@@ -1900,13 +1916,149 @@ pre code {
   font-weight: 700;
   text-transform: uppercase;
   font-size: 12px;
-  transition: all 0.2s ease;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--text-main);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.creator-actions button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-surface);
+  transform: translateY(-1px);
 }
 
 .creator-actions button.primary {
   background: var(--accent-lime);
   border-color: var(--accent-lime);
-  color: var(--text-contrast);
+  color: #0F1012;
+}
+
+.creator-actions button.primary:hover:not(:disabled) {
+  background: #c3eb00;
+  border-color: #c3eb00;
+  box-shadow: 0 4px 14px rgba(212, 255, 0, 0.25);
+}
+
+.creator-actions button.confirm-reject {
+  background: var(--accent-orange);
+  border-color: var(--accent-orange);
+  color: #fff;
+}
+
+.creator-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Drawer Comments & Actions ── */
+.drawer-comment-input-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 14px 0 20px;
+}
+
+.drawer-comment-input-box textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: #090B0D;
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+  transition: border-color 0.15s ease;
+}
+
+.drawer-comment-input-box textarea:focus {
+  border-color: var(--accent-lime);
+}
+
+.add-note-btn {
+  align-self: flex-end;
+  height: 38px;
+  min-height: 38px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  border-radius: var(--radius-xs);
+  border: 1px solid rgba(212, 255, 0, 0.4);
+  background: rgba(212, 255, 0, 0.08);
+  color: var(--accent-lime);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.add-note-btn:hover:not(:disabled) {
+  background: var(--accent-lime);
+  color: #0F1012;
+  border-color: var(--accent-lime);
+  box-shadow: 0 4px 14px rgba(212, 255, 0, 0.25);
+  transform: translateY(-1px);
+}
+
+.add-note-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.comments-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.comment-bubble {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 12px 14px;
+}
+
+.comment-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.comment-head strong {
+  font-size: 11.5px;
+  font-family: var(--font-display);
+  color: var(--accent-lime);
+}
+
+.comment-head small {
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.comment-bubble p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-main);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ── Search Modal ── */
