@@ -549,20 +549,25 @@ pre code {
 }
 
 .metric-grid strong {
-  display: block;
-  font-size: 32px;
-  margin-top: 10px;
-  font-family: var(--font-display);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 28px;
+  margin-top: 8px;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "cv05" 1;
 }
 
 .metric-grid strong small {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-weight: 400;
+  letter-spacing: 0;
 }
 
 .metric-line {
