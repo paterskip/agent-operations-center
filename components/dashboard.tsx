@@ -510,6 +510,7 @@ export default function Dashboard() {
   }, []);
 
   const tid = selectedTask?.id;
+  const taskBoardSlug = selectedTask?.boardSlug || board;
   useEffect(() => {
     // Czyścimy przy zmianie karty — historia poprzedniego zadania
     // nie może być widoczna ani przez chwilę, ani gdy fetch się nie powiedzie.
@@ -519,32 +520,50 @@ export default function Dashboard() {
       setDecisions([]);
       setDecisionComment("");
       setDecisionMessage("");
-      if (tid) void loadDecisions(board, tid, () => active);
+      if (tid) void loadDecisions(taskBoardSlug, tid, () => active);
     }, 0);
     return () => { active = false; clearTimeout(t); };
-  }, [board, tid, loadDecisions]);
+  }, [taskBoardSlug, tid, loadDecisions]);
 
   function requestDecision(action: "approve" | "reject" | "hold") {
     if (!selectedTask) return;
-    if (["reject", "hold"].includes(action) && decisionComment.trim().length < 5) { setDecisionMessage("Podaj powód — minimum 5 znaków."); return; }
+    if (["reject", "hold"].includes(action) && decisionComment.trim().length < 5) {
+      setDecisionMessage("Podaj powód — minimum 5 znaków.");
+      return;
+    }
     setDecisionMessage("");
-    setConfirming(action);
+    if (action === "approve") {
+      void executeDecision("approve");
+    } else {
+      setConfirming(action);
+    }
   }
 
   async function executeDecision(action: "approve" | "reject" | "hold") {
     if (!selectedTask) return;
+    const targetBoard = selectedTask.boardSlug || board;
     setConfirming(null);
-    setDecisionBusy(true); setDecisionMessage("");
+    setDecisionBusy(true);
+    setDecisionMessage("");
     try {
-      const r = await fetch("/api/decisions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ board, taskId: selectedTask.id, action, comment: decisionComment }) });
-      const j = await r.json() as { id?: string; error?: string };
+      const r = await fetch("/api/decisions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ board: targetBoard, taskId: selectedTask.id, action, comment: decisionComment }),
+      });
+      const j = (await r.json()) as { id?: string; error?: string };
       if (!r.ok) throw new Error(j.error || "Błąd");
       setDecisionMessage("Decyzja zapisana. Hermes aktualizuje kartę…");
+      addToast(`Decyzja ${decisionLabels[action]} wysłana do Hermesa`, "info");
       for (let i = 0; i < 6; i++) {
         await new Promise((resolve) => setTimeout(resolve, 1200));
-        const h = await fetch(`/api/decisions?board=${encodeURIComponent(board)}&taskId=${encodeURIComponent(selectedTask.id)}`, { cache: "no-store" });
-        const rows = (((await h.json()) as { decisions: DecisionRecord[] }).decisions || [])
-          .filter((d) => d.taskId === selectedTask.id && d.board === board);
+        const h = await fetch(
+          `/api/decisions?board=${encodeURIComponent(targetBoard)}&taskId=${encodeURIComponent(selectedTask.id)}`,
+          { cache: "no-store" }
+        );
+        const rows = (((await h.json()) as { decisions: DecisionRecord[] }).decisions || []).filter(
+          (d) => d.taskId === selectedTask.id && d.board === targetBoard
+        );
         setDecisions(rows);
         const cur = rows.find((d) => d.id === j.id);
         if (cur?.status === "failed") throw new Error(cur.lastError || "Broker odrzucił");
@@ -554,68 +573,90 @@ export default function Dashboard() {
           const landed = cur.resultStatus;
           if (landed) {
             // Płynna lokalna aktualizacja karty — bez pełnego reloadu. SSE delta potwierdzi.
-            setLiveTasks((prev) => applyTaskDeltas(prev ?? dataRef.current?.tasks ?? [], [{ id: selectedTask.id, status: landed, assignee: selectedTask.assignee, board: board, lastHeartbeatAt: null }]));
+            setLiveTasks((prev) =>
+              applyTaskDeltas(prev ?? dataRef.current?.tasks ?? [], [
+                {
+                  id: selectedTask.id,
+                  status: landed,
+                  assignee: selectedTask.assignee,
+                  board: targetBoard,
+                  lastHeartbeatAt: null,
+                },
+              ])
+            );
             setSelectedTask((c) => (c && c.id === selectedTask.id ? { ...c, status: landed } : c));
           }
           addToast(`Decyzja wykonana: ${selectedTask.id} ${cur.fromStatus}→${cur.resultStatus}`, "success");
           break;
         }
-        if (i === 5) { setDecisionMessage("Decyzja w toku — sprawdź historię za chwilę."); addToast("Decyzja nadal przetwarzana przez brokera", "info"); }
+        if (i === 5) {
+          setDecisionMessage("Decyzja w toku — sprawdź historię za chwilę.");
+          addToast("Decyzja nadal przetwarzana przez brokera", "info");
+        }
       }
-    } catch (e) { setDecisionMessage(e instanceof Error ? e.message : "Błąd"); }
-    finally { setDecisionBusy(false); }
+    } catch (e) {
+      setDecisionMessage(e instanceof Error ? e.message : "Błąd");
+      addToast(e instanceof Error ? e.message : "Błąd", "warning");
+    } finally {
+      setDecisionBusy(false);
+    }
   }
 
   // ── DnD: move task via API ──
   async function moveTask(taskId: string, fromStatus: string, toStatus: string, askConfirm = false) {
-    if (!data) return;
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task) return;
-    const bn = data.boards.find((b) => b.slug === board)?.name || board;
-    if (askConfirm && !confirm(`Przenieść ${task.id} (${task.title}) z ${statusLabel[fromStatus] || fromStatus} do ${statusLabel[toStatus] || toStatus} na boardzie ${bn}?`)) return;
+    if (fromStatus === toStatus) return;
+
+    if (askConfirm && typeof window !== "undefined") {
+      const ok = window.confirm(`Przenieść ${taskId} do kolumny ${toStatus}?`);
+      if (!ok) return;
+    }
+
     try {
       const r = await fetch("/api/tasks", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ board, taskId: task.id, targetStatus: toStatus }),
+        body: JSON.stringify({ board, taskId, targetStatus: toStatus }),
       });
-      const j = await r.json() as { id?: string; error?: string };
-      if (!r.ok) throw new Error(j.error || "Błąd");
-      addToast(`Przenoszenie ${task.id} ${statusLabel[fromStatus] || fromStatus}→${statusLabel[toStatus] || toStatus} — broker przetwarza…`, "info");
+      const j = (await r.json()) as { id?: string; error?: string };
+      if (!r.ok) throw new Error(j.error || "Błąd podczas przesuwania karty");
+      addToast(`Przenoszenie ${taskId} ${statusLabel[fromStatus] || fromStatus} → ${statusLabel[toStatus] || toStatus} — broker przetwarza…`, "info");
 
-      // Czekamy na faktyczny wynik brokera zamiast zakładać, że karta wyląduje
-      // w kolumnie docelowej. Hermes potrafi po `specify` od razu auto-promować
-      // todo → ready, więc prawdziwy status znamy dopiero z rekordu ruchu.
       let settled = false;
       for (let i = 0; i < 8; i++) {
         await new Promise((resolve) => setTimeout(resolve, 1200));
         let row: { status?: string; resultStatus?: string | null; lastError?: string | null } | undefined;
         try {
-          const h = await fetch(`/api/tasks?board=${encodeURIComponent(board)}&taskId=${encodeURIComponent(task.id)}`, { cache: "no-store" });
+          const h = await fetch(`/api/tasks?board=${encodeURIComponent(board)}&taskId=${encodeURIComponent(taskId)}`, { cache: "no-store" });
           if (h.ok) {
             const moves = ((await h.json()) as { moves?: Array<{ id: string; status: string; resultStatus: string | null; lastError: string | null }> }).moves || [];
             row = moves.find((m) => m.id === j.id);
           }
         } catch {}
         if (!row) continue;
-        if (row.status === "failed") { settled = true; throw new Error(row.lastError || "Broker odrzucił przeniesienie"); }
+        if (row.status === "failed") {
+          settled = true;
+          throw new Error(row.lastError || "Broker odrzucił przeniesienie");
+        }
         if (row.status === "done") {
           settled = true;
           const landed = row.resultStatus || toStatus;
-          // Płynna lokalna aktualizacja — bez pełnego reloadu. SSE delta potwierdzi.
-          setLiveTasks((prev) => applyTaskDeltas(prev ?? dataRef.current?.tasks ?? [], [{ id: task.id, status: landed, assignee: task.assignee, board: board, lastHeartbeatAt: null }]));
-          setSelectedTask((c) => (c && c.id === task.id ? { ...c, status: landed } : c));
+          setLiveTasks((prev) => applyTaskDeltas(prev ?? dataRef.current?.tasks ?? [], [{ id: taskId, status: landed, assignee: null, board: board, lastHeartbeatAt: null }]));
+          setSelectedTask((c) => (c && c.id === taskId ? { ...c, status: landed } : c));
           if (landed !== toStatus) {
-            addToast(`${task.id}: Hermes przeniósł dalej — karta jest w ${statusLabel[landed] || landed} (auto-promocja z ${statusLabel[toStatus] || toStatus}).`, "info");
+            addToast(`${taskId}: Hermes przeniósł dalej — karta jest w ${statusLabel[landed] || landed} (auto-promocja z ${statusLabel[toStatus] || toStatus}).`, "info");
           } else {
-            addToast(`${task.id} → ${statusLabel[landed] || landed}`, "success");
+            addToast(`${taskId} → ${statusLabel[landed] || landed}`, "success");
           }
           triggerScorecardRefresh();
           break;
         }
       }
-      if (!settled) { addToast("Ruch nadal przetwarzany przez brokera — karta zaktualizuje się sama.", "info"); }
-    } catch (e) { addToast(e instanceof Error ? e.message : "Błąd przenoszenia", "warning"); }
+      if (!settled) {
+        addToast("Ruch nadal przetwarzany przez brokera — karta zaktualizuje się sama.", "info");
+      }
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : "Błąd przenoszenia", "warning");
+    }
   }
 
   function copyDailyDigest() {
@@ -637,13 +678,14 @@ export default function Dashboard() {
   async function submitTaskComment(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault();
     if (!selectedTask || !newCommentText.trim()) return;
+    const targetBoard = selectedTask.boardSlug || board;
     setSubmittingComment(true);
     const commentBody = newCommentText.trim();
     try {
       const r = await fetch("/api/comments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ board, taskId: selectedTask.id, comment: commentBody }),
+        body: JSON.stringify({ board: targetBoard, taskId: selectedTask.id, comment: commentBody }),
       });
       const j = (await r.json()) as { error?: string };
       if (!r.ok) throw new Error(j.error || "Błąd dodawania komentarza");
