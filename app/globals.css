@@ -2942,8 +2942,8 @@ pre code {
     position: fixed;
     inset: auto 0 0;
     width: auto;
-    height: 64px;
-    padding: 8px 14px env(safe-area-inset-bottom, 14px);
+    height: calc(64px + env(safe-area-inset-bottom, 0px));
+    padding: 8px max(14px, env(safe-area-inset-right, 14px)) max(14px, env(safe-area-inset-bottom, 14px)) max(14px, env(safe-area-inset-left, 14px));
     flex-direction: row;
     align-items: center;
     border-right: 0;
@@ -2957,7 +2957,10 @@ pre code {
   .nav-item { flex-direction: column; gap: 2px; padding: 4px 8px; font-size: 9.5px; min-height: 44px; min-width: 44px; justify-content: center; align-items: center; text-align: center; }
   .nav-item span { font-size: 16px; }
   .nav-item kbd { display: none; }
-  .main-content { margin-left: 0; padding: 20px 14px max(88px, calc(env(safe-area-inset-bottom, 0px) + 64px)); }
+  .main-content {
+    margin-left: 0;
+    padding: max(20px, calc(env(safe-area-inset-top, 0px) + 16px)) max(14px, env(safe-area-inset-right, 14px)) max(88px, calc(env(safe-area-inset-bottom, 0px) + 70px)) max(14px, env(safe-area-inset-left, 14px));
+  }
 
   .mobile-hint { display: block; }
   .mobile-more { display: none !important; }
@@ -3013,8 +3016,7 @@ pre code {
 
   .task-drawer {
     width: 100%;
-    padding: 20px;
-    padding-bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 74px));
+    padding: max(20px, calc(env(safe-area-inset-top, 0px) + 16px)) max(20px, env(safe-area-inset-right, 20px)) max(24px, calc(env(safe-area-inset-bottom, 0px) + 80px)) max(20px, env(safe-area-inset-left, 20px));
   }
 
   .task-drawer dl {
@@ -3039,7 +3041,7 @@ pre code {
   .creator-modal {
     width: calc(100% - 24px);
     max-width: 100%;
-    margin: 12px;
+    margin: max(12px, calc(env(safe-area-inset-top, 0px) + 8px)) max(12px, env(safe-area-inset-right, 12px)) max(12px, calc(env(safe-area-inset-bottom, 0px) + 12px)) max(12px, env(safe-area-inset-left, 12px));
     padding: 20px 16px;
   }
 

@@ -1181,7 +1181,7 @@ export default function Dashboard() {
           </button>;
         })}</div>
         {scorecard && scorecard.length > 0 && <div className="scorecard" aria-label="Wyniki agentów (30 dni)">
-          <div className="section-head"><div><p className="eyebrow">DELIVERY METRICS</p><h2>Scorecard — 30 dni</h2></div><span className="updated">odświeżanie co 60s</span></div>
+          <div className="section-head"><div><p className="eyebrow">DELIVERY METRICS</p><h2>Scorecard — 30 dni</h2></div><span className="updated">aktualizowane na żywo</span></div>
           <div className="scorecard-table">
             {scorecard.map((row) => {
               const max = Math.max(...scorecard.map((r) => r.done30), 1);
