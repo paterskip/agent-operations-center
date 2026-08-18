@@ -2203,16 +2203,29 @@ pre code {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xs);
   color: var(--text-secondary);
-  font-size: 16px;
-  line-height: 1;
+  padding: 0;
+  margin: 0;
   cursor: pointer;
   transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.drawer-close-btn svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+  pointer-events: none;
+  transition: transform 0.15s ease;
 }
 
 .drawer-close-btn:hover {
   background: var(--bg-surface-elevated);
   color: var(--text-main);
   border-color: var(--border-strong);
+}
+
+.drawer-close-btn:hover svg {
+  transform: scale(1.1);
 }
 
 .task-drawer h2 {

@@ -1328,7 +1328,23 @@ export default function Dashboard() {
 
     {/* --- DRAWER --- */}
     {selectedTask && <div className="drawer-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) setSelectedTask(null); }}><aside className="task-drawer" role="dialog" aria-modal="true" aria-labelledby="task-title" ref={drawerRef} tabIndex={-1}>
-      <header><div><button type="button" className="task-id-copy" title={`Kliknij, aby skopiować ${selectedTask.id}`} aria-label={`Kopiuj identyfikator zadania ${selectedTask.id}`} onClick={() => { void copyText(selectedTask.id).then((ok) => addToast(ok ? `Skopiowano ${selectedTask.id}` : `Nie udało się skopiować ${selectedTask.id}`, ok ? "success" : "warning")); }}><code>{selectedTask.id}</code><i aria-hidden="true">⧉</i></button><span className={`status-badge ${selectedTask.status}`} title={statusHelp[selectedTask.status] || ""}>{selectedTask.status}</span></div><button type="button" className="drawer-close-btn" aria-label="Zamknij" onClick={() => setSelectedTask(null)}>×</button></header>
+      <header>
+        <div>
+          <button type="button" className="task-id-copy" title={`Kliknij, aby skopiować ${selectedTask.id}`} aria-label={`Kopiuj identyfikator zadania ${selectedTask.id}`} onClick={() => { void copyText(selectedTask.id).then((ok) => addToast(ok ? `Skopiowano ${selectedTask.id}` : `Nie udało się skopiować ${selectedTask.id}`, ok ? "success" : "warning")); }}>
+            <code>{selectedTask.id}</code>
+            <i aria-hidden="true">⧉</i>
+          </button>
+          <span className={`status-badge ${selectedTask.status}`} title={statusHelp[selectedTask.status] || ""}>
+            {selectedTask.status}
+          </span>
+        </div>
+        <button type="button" className="drawer-close-btn" aria-label="Zamknij" onClick={() => setSelectedTask(null)}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </header>
       <h2 id="task-title">{selectedTask.title}</h2>
       <TaskBody
         body={selectedTask.body}
