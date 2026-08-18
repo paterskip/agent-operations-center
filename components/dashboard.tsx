@@ -365,19 +365,39 @@ export default function Dashboard() {
   /* Keyboard shortcuts */
   useEffect(() => {
     function handler(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") { e.preventDefault(); setSearchOpen(true); return; }
-      if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); setView((v) => v === "board" ? "overview" : "board"); return; }
-      if (e.key === "Escape") { if (creatorOpen) { setCreatorOpen(false); return; } if (selectedTask) { setSelectedTask(null); return; } if (confirming) { setConfirming(null); return; } if (moreOpen) { setMoreOpen(false); return; } if (shortcutsOpen) { setShortcutsOpen(false); return; } }
-      if (e.key === "?" && !e.ctrlKey && !e.metaKey && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") { setShortcutsOpen(true); return; }
+      const key = e.key.toLowerCase();
+      const code = e.code;
+      const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+      const isInput = document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA";
+
+      if (isCmdOrCtrl && (key === "k" || code === "KeyK")) {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+        return;
+      }
+      if (isCmdOrCtrl && (key === "b" || code === "KeyB")) {
+        e.preventDefault();
+        setView((v) => (v === "board" ? "overview" : "board"));
+        return;
+      }
+      if (e.key === "Escape") {
+        if (creatorOpen) { setCreatorOpen(false); return; }
+        if (selectedTask) { setSelectedTask(null); return; }
+        if (confirming) { setConfirming(null); return; }
+        if (moreOpen) { setMoreOpen(false); return; }
+        if (shortcutsOpen) { setShortcutsOpen(false); return; }
+      }
+      if (e.key === "?" && !isCmdOrCtrl && !e.altKey && !isInput) {
+        setShortcutsOpen(true);
+        return;
+      }
       // J/K — nawigacja po kartach decyzji (Vim-style) w overview
-      if (view === "overview" && (e.key === "j" || e.key === "k" || e.key === "J" || e.key === "K") && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const tag = document.activeElement?.tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (view === "overview" && (key === "j" || key === "k") && !isCmdOrCtrl && !e.altKey && !isInput) {
         if (searchOpen || creatorOpen || selectedTask || shortcutsOpen || confirming) return;
         const cards = [...document.querySelectorAll<HTMLElement>(".task-card.compact")];
         if (!cards.length) return;
         const idx = cards.findIndex((c) => c === document.activeElement);
-        const next = e.key.toLowerCase() === "j" ? Math.min(idx + 1, cards.length - 1) : Math.max(idx - 1, 0);
+        const next = key === "j" ? Math.min(idx + 1, cards.length - 1) : Math.max(idx - 1, 0);
         cards[next]?.focus();
         cards[next]?.scrollIntoView({ block: "nearest" });
         e.preventDefault();
