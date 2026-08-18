@@ -43,11 +43,13 @@ export function KanbanCardContent({
   nowSec,
   copied,
   onCopyId,
+  onApprove,
 }: {
   task: TaskCard;
   nowSec?: number;
   copied?: boolean;
   onCopyId?: (e: React.MouseEvent | React.KeyboardEvent) => void;
+  onApprove?: (task: TaskCard) => void;
 }) {
   return (
     <div className="task-card draggable-task">
@@ -89,7 +91,25 @@ export function KanbanCardContent({
           <i>{roleIcon[task.assignee || ""] || "◇"}</i>
           {task.assignee ? roleName[task.assignee] || task.assignee : "unassigned"}
         </span>
-        <time>{relativeTime(task.startedAt || task.createdAt, nowSec)}</time>
+        <div className="task-footer-right">
+          {onApprove && ["blocked", "scheduled"].includes(task.status) && (
+            <button
+              type="button"
+              className="card-quick-approve"
+              title={task.status === "scheduled" ? "Akceptuj → Ready" : "Akceptuj i odblokuj"}
+              onClick={(e) => {
+                e.stopPropagation();
+                onApprove(task);
+              }}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>{task.status === "scheduled" ? "Ready" : "Odblokuj"}</span>
+            </button>
+          )}
+          <time>{relativeTime(task.startedAt || task.createdAt, nowSec)}</time>
+        </div>
       </footer>
     </div>
   );
@@ -152,33 +172,8 @@ export function KanbanTaskCard({ task, nowSec, onSelect, onApprove, onCopyId }: 
             if ("key" in e && e.key !== "Enter" && e.key !== " ") return;
             void copyId(e);
           }}
+          onApprove={onApprove}
         />
-      </div>
-      <div className="task-quick-actions">
-        {onApprove && ["blocked", "scheduled"].includes(task.status) && (
-          <button
-            type="button"
-            className="quick-approve"
-            title="Akceptuj i odblokuj"
-            onClick={(e) => {
-              e.stopPropagation();
-              onApprove(task);
-            }}
-          >
-            ✓
-          </button>
-        )}
-        <button
-          type="button"
-          className="quick-view"
-          title="Pokaż szczegóły"
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect(task);
-          }}
-        >
-          …
-        </button>
       </div>
     </div>
   );
