@@ -37,6 +37,64 @@ function relativeTime(timestamp: number | null, nowSec?: number) {
   );
 }
 
+/** Prezentacyjny komponent karty do użycia w liście oraz w DragOverlay */
+export function KanbanCardContent({
+  task,
+  nowSec,
+  copied,
+  onCopyId,
+}: {
+  task: TaskCard;
+  nowSec?: number;
+  copied?: boolean;
+  onCopyId?: (e: React.MouseEvent | React.KeyboardEvent) => void;
+}) {
+  return (
+    <div className="task-card draggable-task">
+      <div className="task-meta">
+        <span
+          role="button"
+          tabIndex={0}
+          className={`task-id-copy ${copied ? "copied" : ""}`}
+          title={`Kliknij, aby skopiować ${task.id}`}
+          aria-label={`Kopiuj identyfikator zadania ${task.id}`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={onCopyId}
+          onClick={onCopyId}
+        >
+          <code>{task.id}</code>
+          <i aria-hidden="true">{copied ? "✓" : "⧉"}</i>
+        </span>
+        {(() => {
+          if (!nowSec) return null;
+          const startTs = task.startedAt || task.createdAt;
+          const ageHours = startTs ? Math.floor((nowSec - startTs) / 3600) : 0;
+          const isStalled = ageHours >= 24 && ["blocked", "review", "running"].includes(task.status);
+          if (!isStalled) return null;
+          return (
+            <span
+              className={`sla-badge ${ageHours >= 48 ? "overdue" : "warn"}`}
+              title={`Karta w stanie ${task.status} od ${ageHours}h`}
+            >
+              {ageHours >= 48 ? `⚠️ ${Math.floor(ageHours / 24)}d` : `⏱ ${ageHours}h`}
+            </span>
+          );
+        })()}
+        <span className="task-priority">P{task.priority}</span>
+      </div>
+      <h3>{task.title}</h3>
+      <p>{task.body || "Brak opisu"}</p>
+      <footer>
+        <span className="assignee" title={task.assignee ? roleName[task.assignee] || task.assignee : "Unassigned"}>
+          <i>{roleIcon[task.assignee || ""] || "◇"}</i>
+          {task.assignee ? roleName[task.assignee] || task.assignee : "unassigned"}
+        </span>
+        <time>{relativeTime(task.startedAt || task.createdAt, nowSec)}</time>
+      </footer>
+    </div>
+  );
+}
+
 interface KanbanTaskCardProps {
   task: TaskCard;
   nowSec?: number;
@@ -64,7 +122,11 @@ export function KanbanTaskCard({ task, nowSec, onSelect, onApprove, onCopyId }: 
     transition,
   };
 
-  async function copyId() {
+  async function copyId(e?: React.MouseEvent | React.KeyboardEvent) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     const ok = await copyText(task.id);
     if (ok) {
       setCopied(true);
@@ -81,63 +143,21 @@ export function KanbanTaskCard({ task, nowSec, onSelect, onApprove, onCopyId }: 
       {...attributes}
       {...listeners}
     >
-      <button className={`task-card draggable-task ${isDragging ? "dragging" : ""}`} onClick={() => onSelect(task)}>
-        <div className="task-meta">
-          {/* Kopiowanie ID: `span` z rolą button — zagnieżdżony <button> w <button>
-              jest niedozwolony w HTML. onPointerDown zatrzymuje sensor dnd-kit,
-              żeby klik nie startował przeciągania karty. */}
-          <span
-            role="button"
-            tabIndex={0}
-            className={`task-id-copy ${copied ? "copied" : ""}`}
-            title={`Kliknij, aby skopiować ${task.id}`}
-            aria-label={`Kopiuj identyfikator zadania ${task.id}`}
-            onPointerDown={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" && e.key !== " ") return;
-              e.preventDefault();
-              e.stopPropagation();
-              void copyId();
-            }}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              void copyId();
-            }}
-          >
-            <code>{task.id}</code>
-            <i aria-hidden="true">{copied ? "✓" : "⧉"}</i>
-          </span>
-          {(() => {
-            if (!nowSec) return null;
-            const startTs = task.startedAt || task.createdAt;
-            const ageHours = startTs ? Math.floor((nowSec - startTs) / 3600) : 0;
-            const isStalled = ageHours >= 24 && ["blocked", "review", "running"].includes(task.status);
-            if (!isStalled) return null;
-            return (
-              <span
-                className={`sla-badge ${ageHours >= 48 ? "overdue" : "warn"}`}
-                title={`Karta w stanie ${task.status} od ${ageHours}h`}
-              >
-                {ageHours >= 48 ? `⚠️ ${Math.floor(ageHours / 24)}d` : `⏱ ${ageHours}h`}
-              </span>
-            );
-          })()}
-          <span className="task-priority">P{task.priority}</span>
-        </div>
-        <h3>{task.title}</h3>
-        <p>{task.body || "Brak opisu"}</p>
-        <footer>
-          <span className="assignee" title={task.assignee ? roleName[task.assignee] || task.assignee : "Unassigned"}>
-            <i>{roleIcon[task.assignee || ""] || "◇"}</i>
-            {task.assignee ? roleName[task.assignee] || task.assignee : "unassigned"}
-          </span>
-          <time>{relativeTime(task.startedAt || task.createdAt, nowSec)}</time>
-        </footer>
-      </button>
+      <div onClick={() => onSelect(task)}>
+        <KanbanCardContent
+          task={task}
+          nowSec={nowSec}
+          copied={copied}
+          onCopyId={(e) => {
+            if ("key" in e && e.key !== "Enter" && e.key !== " ") return;
+            void copyId(e);
+          }}
+        />
+      </div>
       <div className="task-quick-actions">
         {onApprove && ["blocked", "scheduled"].includes(task.status) && (
           <button
+            type="button"
             className="quick-approve"
             title="Akceptuj i odblokuj"
             onClick={(e) => {
@@ -149,6 +169,7 @@ export function KanbanTaskCard({ task, nowSec, onSelect, onApprove, onCopyId }: 
           </button>
         )}
         <button
+          type="button"
           className="quick-view"
           title="Pokaż szczegóły"
           onClick={(e) => {

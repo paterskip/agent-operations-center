@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ActivityEvent, AgentSummary, DashboardSnapshot, DecisionRecord, IdeaRecord, TaskCard } from "@/lib/types";
+import { STATUSES, type ActivityEvent, type AgentSummary, type DashboardSnapshot, type DecisionRecord, type IdeaRecord, type TaskCard } from "@/lib/types";
 import { applyTaskDeltas, mergeActivity, type ActivityEntry, type TaskDelta } from "@/lib/kanban-delta";
 import { decisionAllowed } from "@/lib/decision-policy";
-import { STATUSES } from "@/lib/types";
-import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { DndContext, DragOverlay, type DragEndEvent, type DragOverEvent, type DragStartEvent, PointerSensor, TouchSensor, useSensor, useSensors, pointerWithin, closestCorners, type CollisionDetection } from "@dnd-kit/core";
 import { ALLOWED_DROPS } from "@/lib/transitions";
 import SearchModal from "./search-modal";
 import { KanbanColumn } from "./kanban-column";
+import { KanbanCardContent } from "./kanban-task-card";
 import SecurityPanel from "./security-panel";
 import SettingsPanel from "./settings-panel";
 import { copyText } from "@/lib/clipboard";
@@ -545,12 +545,12 @@ export default function Dashboard() {
   }
 
   // ── DnD: move task via API ──
-  async function moveTask(taskId: string, fromStatus: string, toStatus: string) {
+  async function moveTask(taskId: string, fromStatus: string, toStatus: string, askConfirm = false) {
     if (!data) return;
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     const bn = data.boards.find((b) => b.slug === board)?.name || board;
-    if (!confirm(`Przenieść ${task.id} (${task.title}) z ${statusLabel[fromStatus] || fromStatus} do ${statusLabel[toStatus] || toStatus} na boardzie ${bn}?`)) return;
+    if (askConfirm && !confirm(`Przenieść ${task.id} (${task.title}) z ${statusLabel[fromStatus] || fromStatus} do ${statusLabel[toStatus] || toStatus} na boardzie ${bn}?`)) return;
     try {
       const r = await fetch("/api/tasks", {
         method: "PATCH",
@@ -707,6 +707,16 @@ export default function Dashboard() {
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
   );
 
+  const customCollisionDetection: CollisionDetection = useCallback((args) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) return pointerCollisions;
+    return closestCorners(args);
+  }, []);
+
+  const activeDraggingTask = useMemo(() => {
+    return draggingTaskId ? tasks.find((t) => t.id === draggingTaskId) : null;
+  }, [draggingTaskId, tasks]);
+
   function handleDragStart(event: DragStartEvent) {
     const id = String(event.active.id);
     draggingTaskIdRef.current = id;
@@ -749,7 +759,18 @@ export default function Dashboard() {
     }
 
     if (!toStatus || toStatus === task.status) return;
-    if (!(ALLOWED_DROP_TARGETS[task.status] || []).includes(toStatus)) return;
+
+    const allowed = ALLOWED_DROP_TARGETS[task.status] || [];
+    if (!allowed.includes(toStatus)) {
+      const allowedNames = allowed.map((s) => statusLabel[s] || s).join(", ");
+      addToast(
+        allowedNames
+          ? `Niedozwolone przeniesienie: ${statusLabel[task.status] || task.status} → ${statusLabel[toStatus] || toStatus}. Dozwolone przejścia: ${allowedNames}.`
+          : `Karty w stanie ${statusLabel[task.status] || task.status} są przetwarzane automatycznie przez agentów lub wymagają decyzji CEO.`,
+        "warning"
+      );
+      return;
+    }
 
     // Optimistic update — liveTasks is the rendered source of truth
     setLiveTasks((prev) =>
@@ -758,7 +779,7 @@ export default function Dashboard() {
       )
     );
 
-    void moveTask(taskId, task.status, toStatus);
+    void moveTask(taskId, task.status, toStatus, false);
   }
 
   function toggleCol(status: string) { setCollapsed((prev) => { const n = new Set(prev); if (n.has(status)) n.delete(status); else n.add(status); return n; }); }
@@ -1187,6 +1208,7 @@ export default function Dashboard() {
           <div className="kanban-scroll">
             <DndContext
               sensors={sensors}
+              collisionDetection={customCollisionDetection}
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
@@ -1222,6 +1244,13 @@ export default function Dashboard() {
                   );
                 })}
               </div>
+              <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.18, 0.67, 0.6, 1.22)" }}>
+                {activeDraggingTask ? (
+                  <div className="task-card-drag-overlay">
+                    <KanbanCardContent task={activeDraggingTask} nowSec={nowSec} />
+                  </div>
+                ) : null}
+              </DragOverlay>
             </DndContext>
           </div>
         </section>
