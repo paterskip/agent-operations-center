@@ -231,19 +231,28 @@ export default function Dashboard() {
     void loadIdeas();
   });
 
-  /* Agent scorecard — refresh on mount + every 60s while on the board view */
+  /* Agent scorecard — event-driven: fetch on mount and on task status/completion changes */
+  const scorecardTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const fetchScorecard = useCallback(() => {
+    fetch("/api/scorecard", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.scorecard) setScorecard(j.scorecard); })
+      .catch(() => {});
+  }, []);
+
+  const triggerScorecardRefresh = useCallback(() => {
+    if (scorecardTimerRef.current) clearTimeout(scorecardTimerRef.current);
+    scorecardTimerRef.current = setTimeout(() => {
+      fetchScorecard();
+    }, 1000);
+  }, [fetchScorecard]);
+
   useEffect(() => {
-    let active = true;
-    const fetchScorecard = () => {
-      fetch("/api/scorecard", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((j) => { if (active && j?.scorecard) setScorecard(j.scorecard); })
-        .catch(() => {});
-    };
     fetchScorecard();
-    const timer = setInterval(() => { if (view === "board") fetchScorecard(); }, 60_000);
-    return () => { active = false; clearInterval(timer); };
-  }, [view]);
+    return () => {
+      if (scorecardTimerRef.current) clearTimeout(scorecardTimerRef.current);
+    };
+  }, [fetchScorecard]);
 
   useEffect(() => {
     if (view !== "overview") return;
@@ -278,6 +287,10 @@ export default function Dashboard() {
     const apply = (payload: { tasks?: TaskDelta[]; agents?: AgentSummary[]; activity?: ActivityEntry[] }) => {
       if (payload.tasks?.length) {
         setLiveTasks((prev) => applyTaskDeltas(prev ?? dataRef.current?.tasks ?? [], payload.tasks!));
+        // Event-driven scorecard refresh: if any task status changed or completed
+        if (payload.tasks.some((t) => t.status != null)) {
+          triggerScorecardRefresh();
+        }
       }
       if (payload.agents?.length) setLiveAgents(payload.agents);
       if (payload.activity?.length) {
@@ -575,6 +588,7 @@ export default function Dashboard() {
           } else {
             addToast(`${task.id} → ${statusLabel[landed] || landed}`, "success");
           }
+          triggerScorecardRefresh();
           break;
         }
       }
