@@ -1243,12 +1243,21 @@ pre code {
   color: var(--text-muted);
   font-size: 10px;
   font-family: var(--font-mono);
+  overflow: hidden;
 }
 
 .assignee {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignee span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1257,11 +1266,14 @@ pre code {
 .assignee i {
   font-style: normal;
   color: var(--accent-lime);
+  flex-shrink: 0;
 }
 
 .task-card footer time {
   flex-shrink: 0;
   white-space: nowrap;
+  font-size: 9.5px;
+  color: var(--text-muted);
 }
 
 .empty-column {

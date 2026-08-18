@@ -27,11 +27,21 @@ const roleName: Record<string, string> = {
 };
 
 function relativeTime(timestamp: number | null, nowSec?: number) {
-  if (!timestamp) return "brak aktywności";
-  const seconds = nowSec ? Math.max(0, Math.floor(nowSec - timestamp)) : 0;
+  if (!timestamp) return "brak";
+  const now = nowSec || Math.floor(Date.now() / 1000);
+  const seconds = Math.max(0, Math.floor(now - timestamp));
   if (seconds < 60) return `${seconds}s temu`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min temu`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} godz. temu`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m temu`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h temu`;
+  if (seconds < 7 * 86400) return `${Math.floor(seconds / 86400)}d temu`;
+  const d = new Date(timestamp * 1000);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  return `${day}.${month}`;
+}
+
+function fullTimeTitle(timestamp: number | null) {
+  if (!timestamp) return "";
   return new Intl.DateTimeFormat("pl-PL", { dateStyle: "medium", timeStyle: "short" }).format(
     new Date(timestamp * 1000)
   );
@@ -51,6 +61,8 @@ export function KanbanCardContent({
   onCopyId?: (e: React.MouseEvent | React.KeyboardEvent) => void;
   onApprove?: (task: TaskCard) => void;
 }) {
+  const timeTs = task.startedAt || task.createdAt;
+
   return (
     <div className="task-card draggable-task">
       <div className="task-meta">
@@ -89,7 +101,7 @@ export function KanbanCardContent({
       <footer>
         <span className="assignee" title={task.assignee ? roleName[task.assignee] || task.assignee : "Unassigned"}>
           <i>{roleIcon[task.assignee || ""] || "◇"}</i>
-          {task.assignee ? roleName[task.assignee] || task.assignee : "unassigned"}
+          <span>{task.assignee ? roleName[task.assignee] || task.assignee : "unassigned"}</span>
         </span>
         <div className="task-footer-right">
           {onApprove && ["blocked", "scheduled"].includes(task.status) && (
@@ -102,13 +114,15 @@ export function KanbanCardContent({
                 onApprove(task);
               }}
             >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <polyline points="20 6 9 17 4 12" />
               </svg>
               <span>{task.status === "scheduled" ? "Ready" : "Odblokuj"}</span>
             </button>
           )}
-          <time>{relativeTime(task.startedAt || task.createdAt, nowSec)}</time>
+          <time title={fullTimeTitle(timeTs)}>
+            {relativeTime(timeTs, nowSec)}
+          </time>
         </div>
       </footer>
     </div>
