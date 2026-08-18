@@ -1286,7 +1286,7 @@ export default function Dashboard() {
 
     {/* --- DRAWER --- */}
     {selectedTask && <div className="drawer-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) setSelectedTask(null); }}><aside className="task-drawer" role="dialog" aria-modal="true" aria-labelledby="task-title" ref={drawerRef} tabIndex={-1}>
-      <header><div><button type="button" className="task-id-copy" title={`Kliknij, aby skopiować ${selectedTask.id}`} aria-label={`Kopiuj identyfikator zadania ${selectedTask.id}`} onClick={() => { void copyText(selectedTask.id).then((ok) => addToast(ok ? `Skopiowano ${selectedTask.id}` : `Nie udało się skopiować ${selectedTask.id}`, ok ? "success" : "warning")); }}><code>{selectedTask.id}</code><i aria-hidden="true">⧉</i></button><span className={`status-badge ${selectedTask.status}`} title={statusHelp[selectedTask.status] || ""}>{selectedTask.status}</span></div><button aria-label="Zamknij" onClick={() => setSelectedTask(null)}>×</button></header>
+      <header><div><button type="button" className="task-id-copy" title={`Kliknij, aby skopiować ${selectedTask.id}`} aria-label={`Kopiuj identyfikator zadania ${selectedTask.id}`} onClick={() => { void copyText(selectedTask.id).then((ok) => addToast(ok ? `Skopiowano ${selectedTask.id}` : `Nie udało się skopiować ${selectedTask.id}`, ok ? "success" : "warning")); }}><code>{selectedTask.id}</code><i aria-hidden="true">⧉</i></button><span className={`status-badge ${selectedTask.status}`} title={statusHelp[selectedTask.status] || ""}>{selectedTask.status}</span></div><button type="button" className="drawer-close-btn" aria-label="Zamknij" onClick={() => setSelectedTask(null)}>×</button></header>
       <h2 id="task-title">{selectedTask.title}</h2>
       <TaskBody
         body={selectedTask.body}
@@ -1439,7 +1439,28 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section><h3>Historia decyzji <span>{decisions.length}</span></h3>{decisions.map((d) => <article className="decision-log" key={d.id}><div><strong>{d.action}</strong><span className={d.status}>{d.status}</span></div><p>{d.fromStatus} → {d.resultStatus || d.toStatus || "oczekuje"}</p>{d.comment && <p>{d.comment}</p>}<small>{relativeTime(d.createdAt)}</small></article>)}{!decisions.length && <p>Brak.</p>}</section>
+      <section className="drawer-section">
+        <div className="section-head">
+          <h3>Historia decyzji <span>{decisions.length}</span></h3>
+        </div>
+        {decisions.length > 0 ? (
+          <div className="decision-history-feed">
+            {decisions.map((d) => (
+              <article className="decision-log" key={d.id}>
+                <div>
+                  <strong>{d.action}</strong>
+                  <span className={d.status}>{d.status}</span>
+                </div>
+                <p>{d.fromStatus} → {d.resultStatus || d.toStatus || "oczekuje"}</p>
+                {d.comment && <p className="decision-log-comment">{d.comment}</p>}
+                <small>{relativeTime(d.createdAt)}</small>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-subtext">Brak podjętych decyzji.</p>
+        )}
+      </section>
     </aside></div>}
   </div>;
 }
