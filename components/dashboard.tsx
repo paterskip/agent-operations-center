@@ -1254,10 +1254,10 @@ export default function Dashboard() {
                 className={`idea-card ${idea.hermesTaskId ? "clickable" : ""}`}
                 onClick={() => {
                   if (idea.hermesTaskId) {
-                    openTask("portfolio", idea.hermesTaskId);
+                    openTask(idea.project || "portfolio", idea.hermesTaskId);
                   }
                 }}
-                title={idea.hermesTaskId ? "Kliknij, aby otworzyć powiązane zadanie w Hermesie" : undefined}
+                title={idea.hermesTaskId ? `Kliknij, aby otworzyć powiązane zadanie w Hermesie (${idea.project})` : undefined}
               >
                 <div>
                   <span className={`idea-status ${idea.status}`}>{idea.status}</span>
@@ -1272,14 +1272,14 @@ export default function Dashboard() {
                       className="idea-hermes-link-btn"
                       onClick={(e) => {
                         e.stopPropagation();
-                        openTask("portfolio", idea.hermesTaskId!);
+                        openTask(idea.project || "portfolio", idea.hermesTaskId!);
                       }}
-                      title={`Otwórz zadanie ${idea.hermesTaskId} w Hermesie`}
+                      title={`Otwórz zadanie ${idea.hermesTaskId} w projekcie ${idea.project}`}
                     >
-                      Hermes: <strong>{idea.hermesTaskId}</strong> ↗
+                      <span>Hermes:</span> <strong>{idea.hermesTaskId}</strong> <span className="arrow">↗</span>
                     </button>
                   ) : (
-                    <span>{idea.mode === "draft" ? "Szkic lokalny" : "Oczekuje na bridge"}</span>
+                    <span className="idea-pending-badge">{idea.mode === "draft" ? "Szkic lokalny" : "Oczekuje na bridge"}</span>
                   )}
                   <time>{relativeTime(idea.updatedAt)}</time>
                 </footer>
