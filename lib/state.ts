@@ -240,3 +240,35 @@ export function listMoves(board?: string, taskId?: string): MoveRecord[] {
       FROM task_moves ${where} ORDER BY created_at DESC LIMIT 200`).all(...params) as MoveRecord[];
   } finally { db.close(); }
 }
+
+export function enqueueProjectCreate(input: {
+  slug: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  color?: string;
+  defaultWorkdir?: string;
+}) {
+  const db = openState();
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const id = `proj_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+    const payload = JSON.stringify({
+      slug: input.slug,
+      name: input.name,
+      description: input.description || "",
+      icon: input.icon || "◈",
+      color: input.color || "#d4ff00",
+      defaultWorkdir: input.defaultWorkdir || "",
+    });
+    db.prepare(`
+      INSERT INTO commands(kind, idea_id, status, attempts, created_at, updated_at)
+      VALUES('board.create', ?, 'pending', 0, ?, ?)
+    `).run(payload, now, now);
+    triggerBroker();
+    return { id, slug: input.slug, status: "pending" };
+  } finally {
+    db.close();
+  }
+}
+

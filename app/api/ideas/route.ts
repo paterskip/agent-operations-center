@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { title, description, project, priority, mode } = parseResult.data;
-    const projects = new Set(discoverBoards().map((board) => board.slug).filter((slug) => slug !== "default" && slug !== "portfolio"));
+    const projects = new Set(discoverBoards().map((board) => board.slug).filter((slug) => slug !== "default"));
     if (!projects.has(project)) return NextResponse.json({ error: "Nieznany projekt docelowy" }, { status: 400 });
 
     const idea = createIdea({ title, description, project, priority, mode });

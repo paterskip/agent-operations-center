@@ -70,10 +70,43 @@ export function ensureTables(db) {
 }
 
 export function runOne(db, exec = defaultExec) {
-  const command = db.prepare("SELECT id,idea_id ideaId FROM commands WHERE status='pending' AND attempts < 3 ORDER BY id LIMIT 1").get();
+  const command = db.prepare("SELECT id,kind,idea_id ideaId FROM commands WHERE status='pending' AND attempts < 3 ORDER BY id LIMIT 1").get();
   if (!command) return false;
-  const idea = db.prepare("SELECT * FROM ideas WHERE id=?").get(command.ideaId);
   const ts = now();
+
+  if (command.kind === "board.create") {
+    db.prepare("UPDATE commands SET status='running', attempts=attempts+1, updated_at=? WHERE id=?").run(ts, command.id);
+    try {
+      const payload = JSON.parse(command.ideaId);
+      const args = ["boards", "create", payload.slug];
+      if (payload.name) args.push("--name", payload.name);
+      if (payload.description) args.push("--description", payload.description);
+      if (payload.icon) args.push("--icon", payload.icon);
+      if (payload.color) args.push("--color", payload.color);
+      if (payload.defaultWorkdir) args.push("--default-workdir", payload.defaultWorkdir);
+
+      execFileSync(defaultHermes, ["kanban", ...args], {
+        encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024,
+        env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin", HOME: "/root" }
+      });
+
+      db.transaction(() => {
+        db.prepare("UPDATE commands SET status='done', updated_at=? WHERE id=?").run(ts, command.id);
+        db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','board.create.done',?,?,NULL,?)")
+          .run(payload.slug, `name=${payload.name}`, ts);
+      })();
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error).slice(0, 500);
+      db.transaction(() => {
+        db.prepare("UPDATE commands SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END, updated_at=? WHERE id=?").run(ts, command.id);
+        db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','board.create.failed',?,?,NULL,?)")
+          .run(String(command.ideaId), message, ts);
+      })();
+    }
+    return true;
+  }
+
+  const idea = db.prepare("SELECT * FROM ideas WHERE id=?").get(command.ideaId);
   if (!idea) {
     db.transaction(() => {
       db.prepare("UPDATE commands SET status='failed', updated_at=? WHERE id=?").run(ts, command.id);

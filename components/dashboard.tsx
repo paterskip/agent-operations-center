@@ -170,6 +170,11 @@ export default function Dashboard() {
   const creatorFormRef = useRef<HTMLFormElement | null>(null);
   const [creatorBoard, setCreatorBoard] = useState("");
 
+  // ── Project Creator state ──
+  const [projectModalOpen, setProjectModalOpen] = useState(false);
+  const [projectError, setProjectError] = useState("");
+  const [projectBusy, setProjectBusy] = useState(false);
+
   const addToast = useCallback((text: string, kind: ToastItem["kind"] = "info") => {
     const id = ++toastId;
     setToasts((prev) => [...prev.slice(-4), { id, text, kind }]);
@@ -957,7 +962,7 @@ export default function Dashboard() {
         <form ref={creatorFormRef} onSubmit={submitNewTask}>
           <label><span>Projekt / board</span>
             <select name="board" required defaultValue={creatorBoard || board} onChange={(ev) => setCreatorBoard(ev.target.value)}>
-              {data.boards.filter((b) => !["default", "portfolio"].includes(b.slug)).map((b) => <option value={b.slug} key={b.slug}>{b.name}</option>)}
+              {data.boards.filter((b) => b.slug !== "default").map((b) => <option value={b.slug} key={b.slug}>{b.name}</option>)}
             </select>
           </label>
           <label><span>Tytuł</span><input name="title" minLength={3} maxLength={160} required placeholder="Np. dodaj endpoint REST dla raportów" /></label>
@@ -985,6 +990,117 @@ export default function Dashboard() {
         </form>
       </div>
     </div>}
+
+    {/* ── Project Creator modal ── */}
+    {projectModalOpen && (
+      <div
+        className="creator-backdrop"
+        onMouseDown={(ev) => {
+          if (ev.currentTarget === ev.target) setProjectModalOpen(false);
+        }}
+      >
+        <div className="creator-modal" role="dialog" aria-modal="true" aria-labelledby="new-project-modal-title">
+          <h2 id="new-project-modal-title">Nowy projekt / Board</h2>
+          <form
+            onSubmit={async (ev) => {
+              ev.preventDefault();
+              const form = ev.currentTarget;
+              const formData = new FormData(form);
+              const name = String(formData.get("name") || "").trim();
+              const slug = String(formData.get("slug") || "").trim().toLowerCase();
+              const description = String(formData.get("description") || "").trim();
+              const icon = String(formData.get("icon") || "◈").trim();
+              const color = String(formData.get("color") || "#d4ff00").trim();
+              const defaultWorkdir = String(formData.get("defaultWorkdir") || "").trim();
+
+              setProjectBusy(true);
+              setProjectError("");
+              try {
+                const res = await fetch("/api/projects", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ name, slug, description, icon, color, defaultWorkdir }),
+                });
+                const json = await res.json();
+                if (!res.ok) {
+                  setProjectError(json.error || "Nie udało się utworzyć projektu");
+                  setProjectBusy(false);
+                  return;
+                }
+                addToast(`Projekt ${name} (${slug}) został utworzony`, "success");
+                setProjectModalOpen(false);
+                setTimeout(() => {
+                  void load();
+                  selectBoard(slug);
+                }, 800);
+              } catch {
+                setProjectError("Błąd połączenia z serwerem");
+              } finally {
+                setProjectBusy(false);
+              }
+            }}
+          >
+            <label>
+              <span>Nazwa projektu</span>
+              <input
+                name="name"
+                minLength={2}
+                maxLength={50}
+                required
+                placeholder="Np. Aplikacja Mobilna"
+                onChange={(e) => {
+                  const nameVal = e.target.value;
+                  const slugInput = e.currentTarget.form?.querySelector<HTMLInputElement>("input[name='slug']");
+                  if (slugInput && !slugInput.dataset.manual) {
+                    slugInput.value = nameVal
+                      .toLowerCase()
+                      .normalize("NFD")
+                      .replace(/[\u0300-\u036f]/g, "")
+                      .replace(/[^a-z0-9]+/g, "-")
+                      .replace(/^-+|-+$/g, "");
+                  }
+                }}
+              />
+            </label>
+            <label>
+              <span>Identyfikator (slug)</span>
+              <input
+                name="slug"
+                minLength={2}
+                maxLength={40}
+                required
+                placeholder="np. aplikacja-mobilna"
+                pattern="^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$"
+                title="Tylko małe litery, cyfry i myślniki"
+                onInput={(e) => {
+                  (e.currentTarget as HTMLInputElement).dataset.manual = "true";
+                }}
+              />
+            </label>
+            <label>
+              <span>Ikona projektu</span>
+              <div className="icon-selector-grid">
+                {["🚀", "⚡", "✦", "⚙", "◈", "📦", "🛡", "📈", "🤖", "🌐"].map((ic) => (
+                  <label key={ic} className="icon-choice-label">
+                    <input type="radio" name="icon" value={ic} defaultChecked={ic === "🚀"} />
+                    <span className="icon-choice-box">{ic}</span>
+                  </label>
+                ))}
+              </div>
+            </label>
+            <label>
+              <span>Opis projektu (opcjonalny)</span>
+              <textarea name="description" maxLength={300} rows={3} placeholder="Krótki opis celu projektu i zakresu prac…" />
+            </label>
+            {projectError && <p className="creator-error">{projectError}</p>}
+            <div className="creator-actions">
+              <button type="button" onClick={() => setProjectModalOpen(false)}>Anuluj</button>
+              <button className="primary" type="submit" disabled={projectBusy}>{projectBusy ? "Tworzenie…" : "Utwórz projekt"}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
 
     <aside className="sidebar" aria-label="Panel boczny">
       <div className="brand"><span className="brand-mark">A</span><div><strong>Agent Ops</strong><small>Mission Control</small></div></div>
@@ -1101,16 +1217,29 @@ export default function Dashboard() {
       </header>
 
       <section className="project-selector" aria-label="Wybór projektu">
-        {data.boards.filter((b) => !["default", "portfolio"].includes(b.slug)).map((item) => <button key={item.slug} className={`project-tab ${item.slug === board ? "active" : ""}`} onClick={() => selectBoard(item.slug)}>
+        {data.boards.filter((b) => b.slug !== "default").map((item) => <button key={item.slug} className={`project-tab ${item.slug === board ? "active" : ""}`} onClick={() => selectBoard(item.slug)}>
           <span className="project-icon">{item.icon}</span><span><strong>{item.name}</strong><small>{item.counts.running || 0} active · {item.counts.blocked || 0} blocked</small></span>
         </button>)}
+        <button type="button" className="project-tab add-project-tab" onClick={() => { setProjectError(""); setProjectModalOpen(true); }} title="Utwórz nowy projekt w Hermesie">
+          <span className="project-icon">＋</span>
+          <span><strong>Nowy projekt</strong><small>Utwórz board</small></span>
+        </button>
       </section>
 
       <section className="inbox-panel" id="inbox">
         <div className="section-head"><div><p className="eyebrow">CEO WORKSPACE</p><h2>CEO Inbox</h2></div><span className="secure-write">Authelia</span></div>
         <div className="inbox-grid">
           <form className="idea-form" onSubmit={(ev) => { ev.preventDefault(); void submitIdea(ev.currentTarget, "analysis"); }}>
-            <label><span>Projekt docelowy</span><select name="project" required defaultValue=""><option value="" disabled>Wybierz projekt</option>{data.boards.filter((b) => !["default", "portfolio"].includes(b.slug)).map((b) => <option value={b.slug} key={b.slug}>{b.name}</option>)}</select></label>
+            <label>
+              <div className="label-with-action">
+                <span>Projekt docelowy</span>
+                <button type="button" className="inline-add-btn" onClick={() => { setProjectError(""); setProjectModalOpen(true); }}>＋ Nowy projekt</button>
+              </div>
+              <select name="project" required defaultValue="">
+                <option value="" disabled>Wybierz projekt</option>
+                {data.boards.filter((b) => b.slug !== "default").map((b) => <option value={b.slug} key={b.slug}>{b.name}</option>)}
+              </select>
+            </label>
             <label><span>Tytuł pomysłu / feature</span><input name="title" minLength={3} maxLength={160} required placeholder="Np. automatyczne raporty skuteczności" /></label>
             <label><span>Problem, pomysł i oczekiwany efekt</span><textarea name="description" minLength={10} maxLength={6000} required rows={5} placeholder="Co chcemy osiągnąć, dla kogo i po czym poznamy sukces?" /></label>
             <label><span>Priorytet</span><select name="priority" defaultValue="2"><option value="1">P1 — niski</option><option value="2">P2 — normalny</option><option value="3">P3 — wysoki</option><option value="4">P4 — krytyczny</option></select></label>

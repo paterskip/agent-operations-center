@@ -64,3 +64,45 @@ export const IdeaCreateSchema = z.object({
   }),
   mode: z.enum(["draft", "analysis"], { message: "Nieprawidłowy tryb (draft/analysis)" }),
 });
+
+export const ProjectCreateSchema = z.object({
+  name: z
+    .string()
+    .transform((s) => s.trim().replace(/[\u0000-\u001f\u007f]/g, " "))
+    .pipe(z.string().min(2, "Nazwa projektu musi mieć 2–50 znaków").max(50, "Nazwa projektu musi mieć 2–50 znaków")),
+  slug: z
+    .string()
+    .transform((s) => s.trim().toLowerCase())
+    .pipe(
+      z
+        .string()
+        .min(2, "Slug musi mieć co najmniej 2 znaki")
+        .max(40, "Slug może mieć maksymalnie 40 znaków")
+        .regex(/^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$/, "Slug może zawierać tylko małe litery, cyfry i myślniki (np. moj-projekt)")
+    ),
+  description: z
+    .string()
+    .optional()
+    .default("")
+    .transform((s) => s.trim().replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " "))
+    .pipe(z.string().max(300, "Opis może mieć maksymalnie 300 znaków")),
+  icon: z
+    .string()
+    .optional()
+    .default("◈")
+    .transform((s) => s.trim())
+    .pipe(z.string().max(10, "Ikona max 10 znaków")),
+  color: z
+    .string()
+    .optional()
+    .default("#d4ff00")
+    .transform((s) => s.trim())
+    .pipe(z.string().max(20, "Kolor max 20 znaków")),
+  defaultWorkdir: z
+    .string()
+    .optional()
+    .default("")
+    .transform((s) => s.trim())
+    .pipe(z.string().max(250, "Ścieżka max 250 znaków")),
+});
+
