@@ -37,7 +37,7 @@ afterEach(() => {
 // Dynamic import after mocks are set up
 const getHandler = async () => {
   const mod = await import("./route");
-  return mod.POST as unknown as (req: NextRequest) => Promise<{ status: number; headers: { get: (k: string) => string | null } }>;
+  return mod.POST;
 };
 
 describe("POST /api/account/password — CSRF origin check", () => {
@@ -68,7 +68,7 @@ describe("POST /api/account/password — CSRF origin check", () => {
     const POST = await getHandler();
     mockReadFile.mockReturnValue("username: ceo\npassword: 'fakehash'\n");
     mockArgonVerify.mockResolvedValue(true);
-    mockArgonHash.mockResolvedValue(Buffer.alloc(32) as unknown as string);
+    mockArgonHash.mockResolvedValue("$argon2id$v=19$m=131072,t=5,p=4$validhash");
     const req = new NextRequest("https://agents.example.com/api/account/password", {
       method: "POST",
       headers: { origin: "https://agents.example.com", "content-type": "application/json" },
@@ -134,7 +134,7 @@ describe("POST /api/account/password — verify + verify failure", () => {
     const yamlContent = "username: ceo\npassword: '" + fakeHash + "'\n";
     mockReadFile.mockReturnValue(yamlContent);
     mockArgonVerify.mockResolvedValue(true);
-    mockArgonHash.mockResolvedValue(Buffer.from("rawhash") as unknown as string);
+    mockArgonHash.mockResolvedValue("$argon2id$v=19$m=131072,t=5,p=4$rawhash");
     const req = new NextRequest("https://agents.example.com/api/account/password", {
       method: "POST",
       headers: { origin: "https://agents.example.com", "content-type": "application/json" },
@@ -160,7 +160,7 @@ describe("POST /api/account/password — YAML format parsing", () => {
     const POST = await getHandler();
     mockReadFile.mockReturnValue('username: ceo\npassword: "doublequotedhash"\n');
     mockArgonVerify.mockResolvedValue(true);
-    mockArgonHash.mockResolvedValue(Buffer.from("r") as unknown as string);
+    mockArgonHash.mockResolvedValue("$argon2id$v=19$m=131072,t=5,p=4$r");
     const req = new NextRequest("https://agents.example.com/api/account/password", {
       method: "POST",
       headers: { origin: "https://agents.example.com", "content-type": "application/json" },
@@ -192,7 +192,7 @@ describe("POST /api/account/password — YAML format parsing", () => {
     const yamlContent = "username: ceo\npassword: '" + fakeHash + "'\n";
     mockReadFile.mockReturnValue(yamlContent);
     mockArgonVerify.mockResolvedValue(true);
-    mockArgonHash.mockImplementation(async () => Math.random().toString(36).slice(2) as unknown as string);
+    mockArgonHash.mockImplementation(async () => `$argon2id$v=19$m=131072,t=5,p=4$${Math.random().toString(36).slice(2)}`);
 
     const mkReq = (next: string) => new NextRequest("https://agents.example.com/api/account/password", {
       method: "POST",

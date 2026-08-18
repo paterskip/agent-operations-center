@@ -3,11 +3,24 @@
 // envelope that gets TRUNCATED on write — JSON.parse then fails. We fall
 // back to extracting the "body" string literal (handling JSON escapes).
 
-export function unwrapBody(body: string): string {
+function isBodyEnvelope(obj: unknown): obj is { body: string } {
+  if (typeof obj !== "object" || obj === null) return false;
+  const record = obj as Record<string, unknown>;
+  // SAFETY: Checked that obj is a non-null object before property access
+  return typeof record.body === "string";
+}
+
+export function unwrapBody(body: string): string;
+export function unwrapBody(body: null | undefined): null;
+export function unwrapBody(body: string | null | undefined): string | null;
+export function unwrapBody(body?: string | null): string | null {
+  if (body == null) return null;
   if (!body || !body.trimStart().startsWith("{")) return body;
   try {
-    const parsed = JSON.parse(body) as { body?: unknown };
-    if (typeof parsed.body === "string") return parsed.body;
+    const parsed: unknown = JSON.parse(body);
+    if (isBodyEnvelope(parsed)) {
+      return parsed.body;
+    }
   } catch {
     // Truncated JSON envelope (seen in real boards): extract the "body" string best-effort.
     const start = body.indexOf('"body":"');

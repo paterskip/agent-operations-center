@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSnapshot } from "@/lib/hermes";
 import { audit, enqueueMove } from "@/lib/state";
+import { CommentCreateSchema } from "@/lib/schemas";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,24 +20,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const raw = JSON.stringify(await request.json());
-    if (raw.length > 4_000) {
-      return NextResponse.json({ error: "Request is too large" }, { status: 413 });
+    const raw: unknown = await request.json();
+    const parseResult = CommentCreateSchema.safeParse(raw);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.issues[0]?.message || "Nieprawidłowe dane komentarza";
+      return NextResponse.json({ error: firstError }, { status: 400 });
     }
-    const value = JSON.parse(raw) as Record<string, unknown>;
-    const board = String(value.board || "");
-    const taskId = String(value.taskId || "");
-    const comment = String(value.comment || "").trim().replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ");
 
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(board) || !/^[A-Za-z0-9_-]{3,80}$/.test(taskId)) {
-      return NextResponse.json({ error: "Nieprawidłowy board lub task" }, { status: 400 });
-    }
-    if (comment.length < 2) {
-      return NextResponse.json({ error: "Komentarz musi zawierać co najmniej 2 znaki" }, { status: 400 });
-    }
-    if (comment.length > 2_000) {
-      return NextResponse.json({ error: "Komentarz nie może przekraczać 2000 znaków" }, { status: 400 });
-    }
+    const { board, taskId, comment } = parseResult.data;
 
     const snapshot = getSnapshot(board);
     if (snapshot.selectedBoard !== board) {

@@ -93,6 +93,7 @@ function readStoredFlag(key: string) {
 
 export default function Dashboard() {
   const [view, setView] = useState<ViewMode>("overview");
+  const [boardSection, setBoardSection] = useState<"board" | "inbox" | "agents">("board");
   const [data, setData] = useState<DashboardSnapshot | null>(null);
   const [liveTasks, setLiveTasks] = useState<TaskCard[] | null>(null);
   const [liveAgents, setLiveAgents] = useState<DashboardSnapshot["agents"] | null>(null);
@@ -280,9 +281,11 @@ export default function Dashboard() {
       }
       if (payload.agents?.length) setLiveAgents(payload.agents);
       if (payload.activity?.length) {
-        // Server entries are structurally ActivityEvent minus `payload` — the
-        // feed render only reads kind/taskTitle/board/assignee/createdAt.
-        setLiveActivity((prev) => mergeActivity(prev ?? dataRef.current?.activity ?? [], payload.activity as unknown as ActivityEvent[]));
+        const incomingEvents: ActivityEvent[] = payload.activity.map((entry) => ({
+          ...entry,
+          payload: null,
+        }));
+        setLiveActivity((prev) => mergeActivity(prev ?? dataRef.current?.activity ?? [], incomingEvents));
       }
     };
     es.addEventListener("ready", () => {
@@ -888,9 +891,9 @@ export default function Dashboard() {
       <div className="brand"><span className="brand-mark">A</span><div><strong>Agent Ops</strong><small>Mission Control</small></div></div>
       <nav aria-label="Główna nawigacja">
         <button className={`nav-item ${view === "overview" ? "active" : ""}`} onClick={() => setView("overview")}><span>◎</span> Overview <kbd>⌘B</kbd></button>
-        <button className={`nav-item ${view === "board" ? "active" : ""}`} onClick={() => { if (view === "board") scrollTo("board"); else { pendingScrollRef.current = "board"; setView("board"); } }}><span>⌁</span> Board</button>
-        <button className="nav-item" onClick={() => { if (view === "board") scrollTo("inbox"); else { pendingScrollRef.current = "inbox"; setView("board"); } }}><span>＋</span> CEO Inbox</button>
-        <button className="nav-item mobile-more" onClick={() => { if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
+        <button className={`nav-item ${view === "board" && boardSection === "board" ? "active" : ""}`} onClick={() => { setBoardSection("board"); if (view === "board") scrollTo("board"); else { pendingScrollRef.current = "board"; setView("board"); } }}><span>⌁</span> Board</button>
+        <button className={`nav-item ${view === "board" && boardSection === "inbox" ? "active" : ""}`} onClick={() => { setBoardSection("inbox"); if (view === "board") scrollTo("inbox"); else { pendingScrollRef.current = "inbox"; setView("board"); } }}><span>＋</span> CEO Inbox</button>
+        <button className={`nav-item mobile-more ${view === "board" && boardSection === "agents" ? "active" : ""}`} onClick={() => { setBoardSection("agents"); if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
         <button className="nav-item" onClick={() => setSearchOpen(true)}><span>⌕</span> Search <kbd>⌘K</kbd></button>
         <button className={`nav-item mobile-more ${view === "security" ? "active" : ""}`} onClick={() => setView("security")}><span>⚿</span> Audyt</button>
         <button className={`nav-item mobile-more ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>⚙</span> Ustawienia</button>
@@ -900,7 +903,7 @@ export default function Dashboard() {
         {isMobile && <button className={`nav-item more-toggle ${moreOpen ? "active" : ""}`} onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen} aria-haspopup="menu"><span>⋯</span> Więcej</button>}
       </nav>
       {isMobile && moreOpen && <div className="more-menu" role="menu" aria-label="Więcej opcji">
-        <button className="more-item" role="menuitem" onClick={() => { setMoreOpen(false); if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
+        <button className={`more-item ${view === "board" && boardSection === "agents" ? "active" : ""}`} role="menuitem" onClick={() => { setMoreOpen(false); setBoardSection("agents"); if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
         <button className={`more-item ${view === "security" ? "active" : ""}`} role="menuitem" onClick={() => { setMoreOpen(false); setView("security"); }}><span>⚿</span> Audyt</button>
         <button className={`more-item ${view === "settings" ? "active" : ""}`} role="menuitem" onClick={() => { setMoreOpen(false); setView("settings"); }}><span>⚙</span> Ustawienia</button>
       </div>}

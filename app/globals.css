@@ -77,6 +77,38 @@ button, a {
   text-decoration: none;
 }
 
+code, pre, kbd, samp {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+code {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 0.15em 0.4em;
+  color: var(--accent-lime);
+}
+
+pre {
+  background: #0B0C0E;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  overflow-x: auto;
+  color: var(--text-main);
+  line-height: 1.5;
+  font-family: var(--font-mono);
+}
+
+pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
 /* ── App Shell & Sidebar ── */
 .app-shell {
   min-height: 100vh;
@@ -184,16 +216,27 @@ button, a {
   flex-shrink: 0;
 }
 
-.nav-item:hover, .nav-item.active {
+.nav-item:hover, .nav-item.active, .more-item:hover, .more-item.active {
   background: var(--bg-glass-hover);
   border-color: var(--border-subtle);
   color: var(--text-main);
 }
 
-.nav-item.active {
-  border-color: rgba(212, 255, 0, 0.3);
+.nav-item.active, .more-item.active {
+  border-color: rgba(212, 255, 0, 0.35);
   color: var(--accent-lime);
-  background: rgba(212, 255, 0, 0.04);
+  background: rgba(212, 255, 0, 0.05);
+}
+
+.nav-item:focus-visible, .more-item:focus-visible {
+  outline: 2px solid var(--accent-lime);
+  outline-offset: -1px;
+}
+
+.nav-item:active, .more-item:active {
+  background: rgba(212, 255, 0, 0.08);
+  border-color: var(--accent-lime);
+  color: var(--accent-lime);
 }
 
 .nav-item.logout-btn {
@@ -341,19 +384,23 @@ button, a {
 .top-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .live-status-pill {
+  height: 36px;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.35rem 0.85rem;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0 12px;
   background: rgba(212, 255, 0, 0.05);
   border: 1px solid rgba(212, 255, 0, 0.2);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 0.75rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--accent-lime);
@@ -381,22 +428,26 @@ button, a {
 }
 
 .digest-top-btn, .sound-top-btn, .new-task-btn {
+  height: 36px;
+  box-sizing: border-box;
   background-color: var(--bg-glass);
   color: var(--text-main);
   font-family: var(--font-display);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  padding: 0.55rem 1rem;
+  padding: 0 14px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-subtle);
   cursor: pointer;
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   white-space: nowrap;
+  line-height: 1;
 }
 
 .digest-top-btn:hover, .sound-top-btn:hover, .new-task-btn:hover {
@@ -404,6 +455,12 @@ button, a {
   border-color: var(--border-strong);
   color: var(--accent-lime);
   transform: translateY(-1px);
+}
+
+.sound-top-btn {
+  padding: 0 10px;
+  min-width: 36px;
+  font-size: 0.95rem;
 }
 
 .new-task-btn {
@@ -422,20 +479,33 @@ button, a {
 }
 
 .mission-clock {
-  font: 600 11px var(--font-mono);
-  color: var(--text-muted);
-  padding: 5px 10px;
+  height: 36px;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   white-space: nowrap;
+  letter-spacing: 0.04em;
 }
 
 .shortcut-hint {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 11px;
   color: var(--text-muted);
   font-family: var(--font-mono);
   white-space: nowrap;
+  padding-left: 2px;
 }
 
 .shortcut-hint kbd {
@@ -1450,12 +1520,13 @@ button, a {
   background: rgba(255, 77, 0, 0.08);
 }
 
-/* ── Task Body Components ── */
+/* ── Task Body Components (Unified Anti-Slop Typography) ── */
 .task-body {
   display: flex;
   flex-direction: column;
   gap: 14px;
   margin: 16px 0;
+  font-family: var(--font-body);
 }
 
 .task-goal-box {
@@ -1475,10 +1546,13 @@ button, a {
   padding: 2px 6px;
   border-radius: var(--radius-xs);
   margin-bottom: 8px;
+  text-transform: uppercase;
 }
 
 .task-goal-text {
+  font-family: var(--font-body);
   font-size: 13.5px;
+  font-weight: 400;
   line-height: 1.6;
   color: var(--text-main);
   margin: 0;
@@ -1506,6 +1580,7 @@ button, a {
   border: 1px solid rgba(212, 255, 0, 0.2);
   padding: 2px 6px;
   border-radius: var(--radius-xs);
+  text-transform: uppercase;
 }
 
 .task-criteria-count {
@@ -1526,9 +1601,10 @@ button, a {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-main);
 }
 
 .task-criteria-check {
@@ -1536,7 +1612,7 @@ button, a {
   font-weight: 800;
   font-size: 12px;
   flex-shrink: 0;
-  margin-top: 1px;
+  margin-top: 2px;
 }
 
 .task-body-toggle {
@@ -1564,22 +1640,29 @@ button, a {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 16px;
-  max-height: 380px;
-  overflow: auto;
+  max-height: 480px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+}
+
+.task-spec-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .task-spec-heading {
-  margin: 0 0 6px;
+  margin: 0;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: .06em;
-  color: var(--text-secondary);
+  color: var(--accent-lime);
   border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 4px;
-  font-family: var(--font-display);
+  padding-bottom: 5px;
+  font-family: var(--font-mono);
+  font-weight: 700;
 }
 
 .task-spec-list {
@@ -1595,21 +1678,56 @@ button, a {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-main);
+}
+
+.task-spec-text {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.task-spec-text p {
+  margin: 0;
 }
 
 .spec-bullet {
   color: var(--text-muted);
   font-size: 11px;
   flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.task-spec-list li.checked .spec-bullet {
+  color: var(--accent-lime);
+  font-weight: 700;
+}
+
+.task-code-block {
+  background: #0D0F12;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: #c9d1d9;
+  overflow-x: auto;
+  margin: 4px 0;
 }
 
 .task-ref-pill {
-  display: inline-block;
-  vertical-align: middle;
-  font: 600 11px var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  vertical-align: baseline;
+  font: 700 11px var(--font-mono);
   color: var(--accent-lime);
   background: rgba(212, 255, 0, 0.08);
   border: 1px solid rgba(212, 255, 0, 0.25);
@@ -1618,11 +1736,60 @@ button, a {
   cursor: pointer;
   transition: all 0.15s ease;
   margin: 0 2px;
+  line-height: 1.4;
 }
 
 .task-ref-pill:hover {
   background: rgba(212, 255, 0, 0.2);
   border-color: var(--accent-lime);
+}
+
+.run-terminal {
+  background: #0B0C0E;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.run-terminal-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--border-subtle);
+  font: 700 9px var(--font-mono);
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+
+.copy-trace-btn {
+  font: 600 10px var(--font-mono);
+  color: var(--accent-lime);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  transition: background 0.15s ease;
+}
+
+.copy-trace-btn:hover {
+  background: rgba(212, 255, 0, 0.1);
+}
+
+.run-terminal-code {
+  margin: 0;
+  padding: 10px 12px;
+  font: 400 11.5px/1.5 var(--font-mono);
+  color: #FF7B72;
+  background: transparent;
+  border: none;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ── Modals & Drawers ── */

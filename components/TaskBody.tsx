@@ -6,7 +6,7 @@ import { summarizeBody, type TaskSection } from "@/lib/body-summary";
 /** Bezpieczne formatowanie prostych znaczników Markdown w linijce (pogrubienie, inline code, powiązania zadań). */
 function renderInlineMarkdown(text: string, onOpenTask?: (taskId: string) => void) {
   const parts: (string | React.ReactNode)[] = [];
-  const regex = /(`[^`]+`|\*\*[^*]+\*\*|\b[A-Za-z0-9_-]+-\d+\b|\bT-\d+\b)/g;
+  const regex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\b[A-Za-z0-9_-]+-\d+\b|\bT-\d+\b|\btask_[a-f0-9]{12}\b)/g;
   let lastIdx = 0;
   let match: RegExpExecArray | null;
 
@@ -19,7 +19,9 @@ function renderInlineMarkdown(text: string, onOpenTask?: (taskId: string) => voi
       parts.push(<code key={match.index}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith("**") && token.endsWith("**")) {
       parts.push(<strong key={match.index}>{token.slice(2, -2)}</strong>);
-    } else if (/\b([A-Za-z0-9_-]+-\d+|T-\d+)\b/.test(token)) {
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      parts.push(<em key={match.index}>{token.slice(1, -1)}</em>);
+    } else if (/\b([A-Za-z0-9_-]+-\d+|T-\d+|task_[a-f0-9]{12})\b/.test(token)) {
       parts.push(
         onOpenTask ? (
           <button
@@ -46,16 +48,18 @@ function renderInlineMarkdown(text: string, onOpenTask?: (taskId: string) => voi
   return parts.length ? parts : text;
 }
 
-/** Renderuje treść sekcji specyfikacji PM. */
-function SectionBlock({ section, onOpenTask }: { section: TaskSection; onOpenTask?: (taskId: string) => void }) {
-  const isList = section.lines.some((l) => /^[-*•)\d.]+\s/.test(l.trim()));
-  const items = section.lines.map((l) => l.trim()).filter(Boolean);
+/** Renderuje linie Markdown (tekst, listy, bloki kodu) ze spójną typografią. */
+function FormattedLines({ lines, onOpenTask }: { lines: string[]; onOpenTask?: (taskId: string) => void }) {
+  const elements: React.ReactNode[] = [];
+  let inCodeBlock = false;
+  let codeLines: string[] = [];
+  let listItems: string[] = [];
 
-  return (
-    <div className="task-spec-section">
-      <h4 className="task-spec-heading">{section.heading}</h4>
-      {isList ? (
-        <ul className="task-spec-list">
+  const flushList = () => {
+    if (listItems.length > 0) {
+      const items = [...listItems];
+      elements.push(
+        <ul key={`list-${elements.length}`} className="task-spec-list">
           {items.map((item, idx) => {
             const clean = item.replace(/^[-*•)\d.]+\s*(?:\[[ xX]\]\s*)?/, "").trim();
             const isChecked = /^[-*•]\s*\[[xX]\]/.test(item);
@@ -67,13 +71,72 @@ function SectionBlock({ section, onOpenTask }: { section: TaskSection; onOpenTas
             );
           })}
         </ul>
-      ) : (
-        <div className="task-spec-text">
-          {items.map((line, idx) => (
-            <p key={idx}>{renderInlineMarkdown(line, onOpenTask)}</p>
-          ))}
-        </div>
-      )}
+      );
+      listItems = [];
+    }
+  };
+
+  const flushCode = () => {
+    if (codeLines.length > 0) {
+      const code = codeLines.join("\n");
+      elements.push(
+        <pre key={`code-${elements.length}`} className="task-code-block">
+          <code>{code}</code>
+        </pre>
+      );
+      codeLines = [];
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("```")) {
+      if (inCodeBlock) {
+        flushCode();
+        inCodeBlock = false;
+      } else {
+        flushList();
+        inCodeBlock = true;
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(line);
+      continue;
+    }
+
+    if (!trimmed) {
+      flushList();
+      continue;
+    }
+
+    if (/^[-*•)\d.]+\s/.test(trimmed)) {
+      listItems.push(trimmed);
+    } else {
+      flushList();
+      elements.push(
+        <p key={`p-${elements.length}`} className="task-spec-text">
+          {renderInlineMarkdown(trimmed, onOpenTask)}
+        </p>
+      );
+    }
+  }
+
+  flushList();
+  flushCode();
+
+  return <>{elements}</>;
+}
+
+/** Renderuje treść sekcji specyfikacji PM. */
+function SectionBlock({ section, onOpenTask }: { section: TaskSection; onOpenTask?: (taskId: string) => void }) {
+  return (
+    <div className="task-spec-section">
+      <h4 className="task-spec-heading">{section.heading}</h4>
+      <FormattedLines lines={section.lines} onOpenTask={onOpenTask} />
     </div>
   );
 }
@@ -126,7 +189,9 @@ export function TaskBody({ body, onOpenTask }: { body: string | null; onOpenTask
           {sections.length > 0 ? (
             sections.map((sec, idx) => <SectionBlock key={idx} section={sec} onOpenTask={onOpenTask} />)
           ) : (
-            <pre className="task-body-full">{full}</pre>
+            <div className="task-spec-section">
+              <FormattedLines lines={full.split("\n")} onOpenTask={onOpenTask} />
+            </div>
           )}
         </div>
       )}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSnapshot } from "@/lib/hermes";
 import { audit, enqueueMove, listMoves } from "@/lib/state";
 import { isAllowedMove, ALLOWED_DROPS } from "@/lib/transitions";
+import { TaskCreateSchema, TaskPatchSchema } from "@/lib/schemas";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,19 +23,16 @@ export async function POST(request: NextRequest) {
   if (request.headers.get("origin") !== expectedOrigin) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   if (!request.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "JSON required" }, { status: 415 });
   try {
-    const raw = JSON.stringify(await request.json());
-    if (raw.length > 12_000) return NextResponse.json({ error: "Request is too large" }, { status: 413 });
-    const value = JSON.parse(raw) as Record<string, unknown>;
-    const board = String(value.board || "");
-    const title = String(value.title || "").trim().replace(/[\u0000-\u001f\u007f]/g, " ");
-    const body = String(value.body || "").trim().replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ");
-    const assignee = String(value.assignee || "").trim() || null;
-    const priority = Number(value.priority);
+    const text = await request.text();
+    if (text.length > 12_000) return NextResponse.json({ error: "Request is too large" }, { status: 413 });
+    const raw: unknown = JSON.parse(text);
+    const parseResult = TaskCreateSchema.safeParse(raw);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.issues[0]?.message || "Nieprawidłowe dane zadania";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
 
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(board)) return NextResponse.json({ error: "Nieprawidłowy board" }, { status: 400 });
-    if (title.length < 3 || title.length > 160) return NextResponse.json({ error: "Tytuł musi mieć 3–160 znaków" }, { status: 400 });
-    if (body.length < 10 || body.length > 6_000) return NextResponse.json({ error: "Opis musi mieć 10–6000 znaków" }, { status: 400 });
-    if (![1, 2, 3, 4].includes(priority)) return NextResponse.json({ error: "Priorytet 1-4" }, { status: 400 });
+    const { board, title, body, assignee, priority } = parseResult.data;
 
     // Validate board exists
     const snapshot = getSnapshot(board);
@@ -59,14 +57,14 @@ export async function PATCH(request: NextRequest) {
   if (request.headers.get("origin") !== expectedOrigin) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   if (!request.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "JSON required" }, { status: 415 });
   try {
-    const raw = JSON.stringify(await request.json());
-    if (raw.length > 4_000) return NextResponse.json({ error: "Request is too large" }, { status: 413 });
-    const value = JSON.parse(raw) as Record<string, unknown>;
-    const board = String(value.board || "");
-    const taskId = String(value.taskId || "");
-    const targetStatus = String(value.targetStatus || "");
+    const raw: unknown = await request.json();
+    const parseResult = TaskPatchSchema.safeParse(raw);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.issues[0]?.message || "Nieprawidłowe dane";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
 
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(board) || !/^[A-Za-z0-9_-]{3,80}$/.test(taskId)) return NextResponse.json({ error: "Nieprawidłowy board lub task" }, { status: 400 });
+    const { board, taskId, targetStatus } = parseResult.data;
     if (!(targetStatus in ALLOWED_DROPS)) return NextResponse.json({ error: `Nieznany status docelowy: ${targetStatus}` }, { status: 400 });
 
     const snapshot = getSnapshot(board);

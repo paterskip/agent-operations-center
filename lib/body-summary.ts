@@ -50,7 +50,7 @@ export function summarizeBody(raw: string | null | undefined): TaskBodySummary {
   let cur: TaskSection | null = null;
 
   for (const line of lines) {
-    const m = line.match(/^#{2,3}\s+(.+)$/);
+    const m = line.match(/^#{1,4}\s+(.+)$/) || line.match(/^\*\*([^*:\n]+):\*\*\s*$/);
     if (m) {
       if (cur) sections.push(cur);
       cur = { heading: m[1].trim(), lines: [] };

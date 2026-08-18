@@ -5,7 +5,7 @@ describe("unwrapBody — kanban body envelope unwrap", () => {
   it("returns plain text untouched", () => {
     expect(unwrapBody("**Goal** do the thing")).toBe("**Goal** do the thing");
     expect(unwrapBody("")).toBe("");
-    expect(unwrapBody(null as unknown as string)).toBe(null);
+    expect(unwrapBody(null)).toBe(null);
   });
 
   it("unwraps a valid JSON envelope", () => {

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSnapshot } from "@/lib/hermes";
-import { audit, enqueueDecision, listDecisions, type DecisionAction } from "@/lib/state";
+import { audit, enqueueDecision, listDecisions } from "@/lib/state";
 import { decisionAllowed, decisionTransitions } from "@/lib/decision-policy";
+import { DecisionCreateSchema } from "@/lib/schemas";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,22 +23,25 @@ export async function POST(request: NextRequest) {
   if (request.headers.get("origin") !== expectedOrigin) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   if (!request.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "JSON required" }, { status: 415 });
   try {
-    const raw = JSON.stringify(await request.json());
-    if (raw.length > 4_000) return NextResponse.json({ error: "Request is too large" }, { status: 413 });
-    const value = JSON.parse(raw) as Record<string, unknown>;
-    const board = String(value.board || "");
-    const taskId = String(value.taskId || "");
-    const action = String(value.action || "") as DecisionAction;
-    const comment = String(value.comment || "").trim().replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ");
-    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(board) || !/^[A-Za-z0-9_-]{3,80}$/.test(taskId)) return NextResponse.json({ error: "Nieprawidłowy board lub task" }, { status: 400 });
-    if (!(action in decisionTransitions)) return NextResponse.json({ error: "Niedozwolona akcja" }, { status: 400 });
-    if (comment.length > 2_000) return NextResponse.json({ error: "Komentarz jest za długi" }, { status: 400 });
-    if (["reject", "hold"].includes(action) && comment.length < 5) return NextResponse.json({ error: "Podaj powód (minimum 5 znaków)" }, { status: 400 });
+    const raw: unknown = await request.json();
+    const parseResult = DecisionCreateSchema.safeParse(raw);
+    if (!parseResult.success) {
+      const firstError = parseResult.error.issues[0]?.message || "Nieprawidłowe dane decyzji";
+      return NextResponse.json({ error: firstError }, { status: 400 });
+    }
+
+    const { board, taskId, action, comment } = parseResult.data;
+
+    if (["reject", "hold"].includes(action) && comment.length < 5) {
+      return NextResponse.json({ error: "Podaj powód (minimum 5 znaków)" }, { status: 400 });
+    }
+
     const snapshot = getSnapshot(board);
     if (snapshot.selectedBoard !== board) return NextResponse.json({ error: "Nieznany board" }, { status: 404 });
     const task = snapshot.tasks.find((item) => item.id === taskId);
     if (!task) return NextResponse.json({ error: "Task nie istnieje" }, { status: 404 });
     if (!decisionAllowed(action, task.status)) return NextResponse.json({ error: `Akcja ${action} nie jest dozwolona dla statusu ${task.status}` }, { status: 409 });
+    
     const rule = decisionTransitions[action];
     const result = enqueueDecision({ board, taskId, action, fromStatus: task.status, toStatus: rule.expected, comment });
     audit("ceo", `task.${action}`, `${board}/${taskId}`, `${task.status}->${rule.expected || "auto"}`, ip(request));
