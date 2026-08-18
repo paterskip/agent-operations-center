@@ -1313,19 +1313,34 @@ pre code {
 }
 
 .filter-select, .filter-search-input {
+  height: 32px;
+  box-sizing: border-box;
   background: #090B0D;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   color: var(--text-main);
   font-size: 11.5px;
-  padding: 6px 10px;
+  padding: 0 10px;
   cursor: pointer;
   outline: none;
   font-family: inherit;
+  transition: all 0.15s ease;
+}
+
+.filter-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: #090B0D url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237D8EA3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center;
+  padding-right: 26px;
+}
+
+.filter-select:hover, .filter-search-input:hover {
+  border-color: var(--border-strong);
 }
 
 .filter-select:focus, .filter-search-input:focus {
   border-color: var(--accent-lime);
+  box-shadow: 0 0 0 2px rgba(212, 255, 0, 0.15);
 }
 
 .filter-clear-btn {
@@ -2538,11 +2553,21 @@ pre code {
   color: var(--text-main);
   font-size: 13px;
   font-family: inherit;
+  box-sizing: border-box;
+}
+
+.creator-modal select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237D8EA3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 14px center;
+  padding-right: 36px;
+  cursor: pointer;
 }
 
 .creator-modal input:focus, .creator-modal textarea:focus, .creator-modal select:focus {
   border-color: var(--accent-lime);
   outline: none;
+  box-shadow: 0 0 0 2px rgba(212, 255, 0, 0.15);
 }
 
 .creator-actions {
@@ -2992,8 +3017,35 @@ pre code {
     padding-bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 74px));
   }
 
+  .task-drawer dl {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
   .task-drawer h2 {
-    font-size: 20px;
+    font-size: 19px;
+  }
+
+  .throughput-summary-bar {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+
+  .throughput-kpi-item {
+    font-size: 11px;
+  }
+
+  .creator-modal {
+    width: calc(100% - 24px);
+    max-width: 100%;
+    margin: 12px;
+    padding: 20px 16px;
+  }
+
+  .topbar-ip-badge, .ip-status-badge {
+    font-size: 10.5px;
+    padding: 0 4px;
   }
 
   .scorecard-row {
