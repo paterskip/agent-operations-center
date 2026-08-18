@@ -320,6 +320,11 @@ export function initDb() {
 }
 
 export function main() {
+  if (!fs.existsSync(defaultHermes)) {
+    // Hermes CLI binary is not present in this environment (e.g. dashboard container).
+    // Safely exit without claiming or failing queued commands so host broker can execute them.
+    return;
+  }
   const db = initDb();
   try {
     backupKanban();
