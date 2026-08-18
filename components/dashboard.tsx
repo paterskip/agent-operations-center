@@ -280,6 +280,9 @@ export default function Dashboard() {
   const dataRef = useRef(data);
   // eslint-disable-next-line react-hooks/refs -- latest-ref: read in SSE apply closures, render-time assignment is intentional
   dataRef.current = data;
+  const boardRef = useRef(board);
+  // eslint-disable-next-line react-hooks/refs -- latest-ref for SSE resync on reconnect
+  boardRef.current = board;
   const droppedRef = useRef(false);
   useEffect(() => {
     if (view !== "board") return;
@@ -304,7 +307,7 @@ export default function Dashboard() {
     es.addEventListener("ready", () => {
       setLiveStatus("connected");
       // Reconnect after a drop: resync with a full snapshot (rare — safe point).
-      if (droppedRef.current) { droppedRef.current = false; void load(board); }
+      if (droppedRef.current) { droppedRef.current = false; void load(boardRef.current); }
     });
     es.addEventListener("change", (ev) => {
       // Nie ruszaj boardu podczas przeciągania — zabezpiecza przed przerwaniem drag
@@ -329,10 +332,9 @@ export default function Dashboard() {
       setLiveStatus("reconnecting");
     };
     return () => {
-      setLiveStatus("offline");
       es.close();
     };
-  }, [view, board, load]);
+  }, [view, load]);
 
   const toggleSound = useCallback(() => {
     setSoundEnabled((prev) => {
