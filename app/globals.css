@@ -497,6 +497,7 @@ pre code {
   gap: 6px;
   white-space: nowrap;
   line-height: 1;
+  text-decoration: none;
 }
 
 .digest-top-btn:hover, .sound-top-btn:hover, .new-task-btn:hover {
@@ -504,6 +505,27 @@ pre code {
   border-color: var(--border-strong);
   color: var(--accent-lime);
   transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.ip-status-badge {
+  height: 36px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  line-height: 1;
+  user-select: none;
+}
+
+.ip-status-badge strong {
+  color: var(--text-secondary);
+  font-weight: 600;
 }
 
 .sound-top-btn {

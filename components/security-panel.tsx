@@ -45,7 +45,7 @@ export default function SecurityPanel() {
       <div className="top-actions">
         <a href="/api/audit/export?format=csv&days=30" download className="digest-top-btn" title="Pobierz pełny dziennik audytu w formacie CSV">📥 Pobierz CSV</a>
         <a href="/api/audit/export?format=json&days=30" download className="digest-top-btn" title="Pobierz pełny dziennik audytu w formacie JSON">📥 Pobierz JSON</a>
-        {data && <span className="updated">Twój adres IP: <code>{data.currentIp}</code></span>}
+        {data && <span className="ip-status-badge" title="Twój wykryty publiczny adres IP">IP: <strong>{data.currentIp}</strong></span>}
       </div>
     </header>
 
