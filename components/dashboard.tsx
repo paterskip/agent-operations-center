@@ -1140,9 +1140,9 @@ export default function Dashboard() {
           <h1>Overview</h1>
         </div>
         <div className="top-actions">
-          <div className={`live-status-pill ${liveStatus}`} title={`SSE Stream: ${liveStatus} (${eventCount} zdarzeń w sesji)`}>
+          <div className={`live-status-pill ${liveStatus}`} title={`Strumień Server-Sent Events na żywo: ${liveStatus === "connected" ? "Połączono" : liveStatus === "reconnecting" ? "Ponawianie połączenia" : "Rozłączono"} (odebrano ${eventCount} aktualizacji w tej sesji)`}>
             <span className="live-pulse-dot" />
-            <span>{liveStatus === "connected" ? `LIVE (${eventCount})` : liveStatus === "reconnecting" ? "RECONNECTING" : "OFFLINE"}</span>
+            <span>{liveStatus === "connected" ? `LIVE (${eventCount})` : liveStatus === "reconnecting" ? "ŁĄCZENIE…" : "OFFLINE"}</span>
           </div>
           <button type="button" className="digest-top-btn" onClick={copyDailyDigest} title="Kopiuj raport operacyjny (Markdown) do schowka">
             📋 Kopiuj raport
@@ -1201,9 +1201,9 @@ export default function Dashboard() {
       <header className="topbar">
         <div><p className="eyebrow">AGENT OPERATIONS CENTER</p><h1>Delivery Board</h1></div>
         <div className="top-actions">
-          <div className={`live-status-pill ${liveStatus}`} title={`SSE Stream: ${liveStatus} (${eventCount} zdarzeń w sesji)`}>
+          <div className={`live-status-pill ${liveStatus}`} title={`Strumień Server-Sent Events na żywo: ${liveStatus === "connected" ? "Połączono" : liveStatus === "reconnecting" ? "Ponawianie połączenia" : "Rozłączono"} (odebrano ${eventCount} aktualizacji w tej sesji)`}>
             <span className="live-pulse-dot" />
-            <span>{liveStatus === "connected" ? `LIVE (${eventCount})` : liveStatus === "reconnecting" ? "RECONNECTING" : "OFFLINE"}</span>
+            <span>{liveStatus === "connected" ? `LIVE (${eventCount})` : liveStatus === "reconnecting" ? "ŁĄCZENIE…" : "OFFLINE"}</span>
           </div>
           <button type="button" className="digest-top-btn" onClick={copyDailyDigest} title="Kopiuj raport operacyjny (Markdown) do schowka">
             📋 Kopiuj raport

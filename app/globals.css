@@ -476,7 +476,7 @@ pre code {
   color: var(--accent-orange);
 }
 
-.digest-top-btn, .sound-top-btn, .new-task-btn {
+.digest-top-btn, .sound-top-btn {
   height: 36px;
   box-sizing: border-box;
   background-color: var(--bg-glass);
@@ -500,7 +500,7 @@ pre code {
   text-decoration: none;
 }
 
-.digest-top-btn:hover, .sound-top-btn:hover, .new-task-btn:hover {
+.digest-top-btn:hover, .sound-top-btn:hover {
   background-color: var(--bg-glass-hover);
   border-color: var(--border-strong);
   color: var(--accent-lime);
@@ -508,41 +508,35 @@ pre code {
   text-decoration: none;
 }
 
-.ip-status-badge {
+.new-task-btn {
   height: 36px;
   box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  line-height: 1;
-  user-select: none;
-}
-
-.ip-status-badge strong {
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.sound-top-btn {
-  padding: 0 10px;
-  min-width: 36px;
-  font-size: 0.95rem;
-}
-
-.new-task-btn {
   background-color: var(--accent-lime);
   color: var(--text-contrast);
-  border-color: var(--accent-lime);
+  border: 1px solid var(--accent-lime);
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  line-height: 1;
 }
 
 .new-task-btn:hover {
+  background-color: #e5ff4d;
+  border-color: #e5ff4d;
   color: var(--text-contrast);
-  box-shadow: 0 6px 20px rgba(212, 255, 0, 0.25);
+  box-shadow: 0 4px 16px rgba(212, 255, 0, 0.35);
+  transform: translateY(-1px);
 }
 
 .sound-top-btn.off {
@@ -1613,8 +1607,10 @@ pre code {
 }
 
 .action-btn.primary:hover {
+  background-color: #e5ff4d;
+  border-color: #e5ff4d;
   color: var(--text-contrast);
-  box-shadow: 0 8px 24px rgba(212, 255, 0, 0.25);
+  box-shadow: 0 8px 24px rgba(212, 255, 0, 0.35);
 }
 
 .action-btn kbd {
