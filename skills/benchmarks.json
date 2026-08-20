@@ -1,0 +1,202 @@
+[
+  {
+    "skillSlug": "pm-task-decomposition",
+    "harness": "hermes-docker-sandbox",
+    "evaluatedAt": 1755691200,
+    "attempts": 2,
+    "scores": [
+      {
+        "dimension": "correctness",
+        "baselineScore": 48,
+        "withSkillScore": 89,
+        "skillLift": 41
+      },
+      {
+        "dimension": "discoverability",
+        "baselineScore": 42,
+        "withSkillScore": 94,
+        "skillLift": 52
+      },
+      {
+        "dimension": "effectiveness",
+        "baselineScore": 44,
+        "withSkillScore": 88,
+        "skillLift": 44
+      },
+      {
+        "dimension": "efficiency",
+        "baselineScore": 45,
+        "withSkillScore": 86,
+        "skillLift": 41
+      },
+      {
+        "dimension": "security",
+        "baselineScore": 98,
+        "withSkillScore": 100,
+        "skillLift": 2
+      }
+    ],
+    "tokenUsage": {
+      "baselineAvg": 4200,
+      "withSkillAvg": 2950,
+      "tokenDeltaPercent": -29.8
+    },
+    "stepCount": {
+      "baselineAvg": 9.2,
+      "withSkillAvg": 4.8,
+      "stepSavingsPercent": 47.8
+    },
+    "verificationStatus": "verified",
+    "securityGatePassed": true
+  },
+  {
+    "skillSlug": "anti-slop-code-review",
+    "harness": "hermes-docker-sandbox",
+    "evaluatedAt": 1755691200,
+    "attempts": 2,
+    "scores": [
+      {
+        "dimension": "correctness",
+        "baselineScore": 42,
+        "withSkillScore": 93,
+        "skillLift": 51
+      },
+      {
+        "dimension": "discoverability",
+        "baselineScore": 40,
+        "withSkillScore": 96,
+        "skillLift": 56
+      },
+      {
+        "dimension": "effectiveness",
+        "baselineScore": 41,
+        "withSkillScore": 91,
+        "skillLift": 50
+      },
+      {
+        "dimension": "efficiency",
+        "baselineScore": 43,
+        "withSkillScore": 89,
+        "skillLift": 46
+      },
+      {
+        "dimension": "security",
+        "baselineScore": 96,
+        "withSkillScore": 100,
+        "skillLift": 4
+      }
+    ],
+    "tokenUsage": {
+      "baselineAvg": 5600,
+      "withSkillAvg": 3400,
+      "tokenDeltaPercent": -39.3
+    },
+    "stepCount": {
+      "baselineAvg": 11.4,
+      "withSkillAvg": 5.2,
+      "stepSavingsPercent": 54.4
+    },
+    "verificationStatus": "verified",
+    "securityGatePassed": true
+  },
+  {
+    "skillSlug": "sec-ops-vulnerability-scan",
+    "harness": "hermes-docker-sandbox",
+    "evaluatedAt": 1755691200,
+    "attempts": 2,
+    "scores": [
+      {
+        "dimension": "correctness",
+        "baselineScore": 54,
+        "withSkillScore": 95,
+        "skillLift": 41
+      },
+      {
+        "dimension": "discoverability",
+        "baselineScore": 45,
+        "withSkillScore": 92,
+        "skillLift": 47
+      },
+      {
+        "dimension": "effectiveness",
+        "baselineScore": 51,
+        "withSkillScore": 94,
+        "skillLift": 43
+      },
+      {
+        "dimension": "efficiency",
+        "baselineScore": 47,
+        "withSkillScore": 90,
+        "skillLift": 43
+      },
+      {
+        "dimension": "security",
+        "baselineScore": 92,
+        "withSkillScore": 100,
+        "skillLift": 8
+      }
+    ],
+    "tokenUsage": {
+      "baselineAvg": 4800,
+      "withSkillAvg": 3100,
+      "tokenDeltaPercent": -35.4
+    },
+    "stepCount": {
+      "baselineAvg": 8.8,
+      "withSkillAvg": 4.1,
+      "stepSavingsPercent": 53.4
+    },
+    "verificationStatus": "verified",
+    "securityGatePassed": true
+  },
+  {
+    "skillSlug": "qa-regression-testing",
+    "harness": "hermes-docker-sandbox",
+    "evaluatedAt": 1755691200,
+    "attempts": 2,
+    "scores": [
+      {
+        "dimension": "correctness",
+        "baselineScore": 46,
+        "withSkillScore": 90,
+        "skillLift": 44
+      },
+      {
+        "dimension": "discoverability",
+        "baselineScore": 41,
+        "withSkillScore": 91,
+        "skillLift": 50
+      },
+      {
+        "dimension": "effectiveness",
+        "baselineScore": 45,
+        "withSkillScore": 89,
+        "skillLift": 44
+      },
+      {
+        "dimension": "efficiency",
+        "baselineScore": 44,
+        "withSkillScore": 87,
+        "skillLift": 43
+      },
+      {
+        "dimension": "security",
+        "baselineScore": 97,
+        "withSkillScore": 100,
+        "skillLift": 3
+      }
+    ],
+    "tokenUsage": {
+      "baselineAvg": 5100,
+      "withSkillAvg": 3600,
+      "tokenDeltaPercent": -29.4
+    },
+    "stepCount": {
+      "baselineAvg": 10.1,
+      "withSkillAvg": 5.6,
+      "stepSavingsPercent": 44.6
+    },
+    "verificationStatus": "verified",
+    "securityGatePassed": true
+  }
+]

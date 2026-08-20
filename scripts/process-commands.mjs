@@ -126,7 +126,8 @@ export function runOne(db, exec = defaultExec) {
       "Po analizie zablokuj kartę jako needs_input i poproś CEO o decyzję."
     ].join("\n\n");
     const key = createHash("sha256").update(`aoc:${idea.id}`).digest("hex");
-    const output = exec("portfolio", ["create", idea.title, "--body", body, "--assignee", "pm", "--priority", String(idea.priority), "--created-by", "CEO Web", "--idempotency-key", key, "--json"]);
+    const targetBoard = idea.project || "portfolio";
+    const output = exec(targetBoard, ["create", idea.title, "--body", body, "--assignee", "pm", "--priority", String(idea.priority), "--created-by", "CEO Web", "--idempotency-key", key, "--json"]);
     const parsed = JSON.parse(output);
     const taskId = parsed.id || parsed.task_id;
     db.transaction(() => {
@@ -158,7 +159,27 @@ export function processDecision(db, exec = defaultExec) {
   if (claimed.changes === 0) return false;
   try {
     const before = taskState(decision.board, decision.taskId, exec);
-    if (before.status !== decision.fromStatus) throw new Error(`Task status changed from ${decision.fromStatus} to ${before.status}`);
+    if (before.status !== decision.fromStatus) {
+      // Idempotency check: if the desired outcome is ALREADY satisfied in reality
+      if ((decision.action === "approve" || decision.action === "resume") && before.status !== "blocked" && before.status !== "archived") {
+        db.transaction(() => {
+          db.prepare("UPDATE task_decisions SET status='done', result_status=?, last_error=NULL, updated_at=? WHERE id=?").run(before.status, ts, decision.id);
+          db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker',?,?,?,NULL,?)")
+            .run(`task.${decision.action}.already_resolved`, `${decision.board}/${decision.taskId}`, `${decision.fromStatus}->${before.status} (concurrent unblock); decision=${decision.id}`, ts);
+        })();
+        return true;
+      }
+      if ((decision.action === "reject" || decision.action === "hold") && before.status === "blocked") {
+        db.transaction(() => {
+          db.prepare("UPDATE task_decisions SET status='done', result_status=?, last_error=NULL, updated_at=? WHERE id=?").run(before.status, ts, decision.id);
+          db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker',?,?,?,NULL,?)")
+            .run(`task.${decision.action}.already_resolved`, `${decision.board}/${decision.taskId}`, `already blocked; decision=${decision.id}`, ts);
+        })();
+        return true;
+      }
+      throw new Error(`Task status changed from ${decision.fromStatus} to ${before.status}`);
+    }
+
     const reason = decision.comment || "Decyzja CEO: zaakceptowano do dalszej pracy. PM decyduje o przydziale.";
     if (decision.action === "approve" || decision.action === "resume") {
       if (!["blocked", "scheduled"].includes(before.status)) throw new Error(`Cannot resume task in ${before.status}`);
@@ -171,9 +192,16 @@ export function processDecision(db, exec = defaultExec) {
       if (!["todo", "ready", "running"].includes(before.status)) throw new Error(`Cannot hold task in ${before.status}`);
       exec(decision.board, ["block", decision.taskId, `CEO HOLD: ${reason}`, "--kind", "needs_input"]);
     } else throw new Error("Unknown decision action");
+
     const after = taskState(decision.board, decision.taskId, exec);
-    const allowed = decision.action === "approve" || decision.action === "resume" ? ["ready", "todo"] : ["blocked", "triage"];
-    if (!allowed.includes(after.status)) throw new Error(`Unexpected resulting status ${after.status}`);
+    const isSatisfied = (decision.action === "approve" || decision.action === "resume")
+      ? (after.status !== "blocked" && after.status !== "archived")
+      : (after.status === "blocked" || after.status === "triage");
+
+    if (!isSatisfied) {
+      throw new Error(`Unexpected resulting status ${after.status} for action ${decision.action}`);
+    }
+
     db.transaction(() => {
       db.prepare("UPDATE task_decisions SET status='done', result_status=?, last_error=NULL, updated_at=? WHERE id=?").run(after.status, ts, decision.id);
       db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker',?,?,?,NULL,?)")
@@ -221,7 +249,18 @@ export function processMove(db, exec = defaultExec) {
       })();
     } else {
       const task = taskState(move.board, move.taskId, exec);
-      if (task.status !== move.fromStatus) throw new Error(`Task status changed from ${move.fromStatus} to ${task.status}`);
+      if (task.status !== move.fromStatus) {
+        if (task.status === move.toStatus) {
+          db.transaction(() => {
+            db.prepare("UPDATE task_moves SET status='done', result_status=?, last_error=NULL, updated_at=? WHERE id=?")
+              .run(task.status, ts, move.id);
+            db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','task.move.already_resolved',?,?,NULL,?)")
+              .run(`${move.board}/${move.taskId}`, `${move.fromStatus}->${task.status} (concurrent); move.id=${move.id}`, ts);
+          })();
+          return true;
+        }
+        throw new Error(`Task status changed from ${move.fromStatus} to ${task.status}`);
+      }
 
       const transition = `${move.fromStatus}→${move.toStatus}`;
 

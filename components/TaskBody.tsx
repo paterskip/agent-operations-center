@@ -6,7 +6,7 @@ import { summarizeBody, type TaskSection } from "@/lib/body-summary";
 /** Bezpieczne formatowanie prostych znaczników Markdown w linijce (pogrubienie, inline code, powiązania zadań). */
 function renderInlineMarkdown(text: string, onOpenTask?: (taskId: string) => void) {
   const parts: (string | React.ReactNode)[] = [];
-  const regex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\b[A-Za-z0-9_-]+-\d+\b|\bT-\d+\b|\btask_[a-f0-9]{12}\b)/g;
+  const regex = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\bt_[a-f0-9]{6,16}\b|\btask_[a-f0-9]{6,16}\b|\bT-\d+\b|\b[A-Za-z0-9_-]+-\d+\b)/g;
   let lastIdx = 0;
   let match: RegExpExecArray | null;
 
@@ -21,7 +21,7 @@ function renderInlineMarkdown(text: string, onOpenTask?: (taskId: string) => voi
       parts.push(<strong key={match.index}>{token.slice(2, -2)}</strong>);
     } else if (token.startsWith("*") && token.endsWith("*")) {
       parts.push(<em key={match.index}>{token.slice(1, -1)}</em>);
-    } else if (/\b([A-Za-z0-9_-]+-\d+|T-\d+|task_[a-f0-9]{12})\b/.test(token)) {
+    } else if (/\b(t_[a-f0-9]{6,16}|task_[a-f0-9]{6,16}|T-\d+|[A-Za-z0-9_-]+-\d+)\b/.test(token)) {
       parts.push(
         onOpenTask ? (
           <button

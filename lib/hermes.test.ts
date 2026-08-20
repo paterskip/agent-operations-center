@@ -50,4 +50,15 @@ describe("Hermes read-only adapter", () => {
     const serialized = JSON.stringify(snapshot);
     for (const forbidden of ["workspace_path", "stored_path", "worker_pid", "claim_lock", "session_id", "kanban_notify_subs"]) expect(serialized).not.toContain(forbidden);
   });
+
+  it("findTask finds a task across boards", async () => {
+    const { findTask } = await import("./hermes");
+    const result = findTask("t_test", "typer-bot");
+    expect(result).not.toBeNull();
+    expect(result?.task.id).toBe("t_test");
+    expect(result?.board).toBe("typer-bot");
+
+    const nonExistent = findTask("t_missing");
+    expect(nonExistent).toBeNull();
+  });
 });

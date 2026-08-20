@@ -11,6 +11,7 @@ import { KanbanColumn } from "./kanban-column";
 import { KanbanCardContent } from "./kanban-task-card";
 import SecurityPanel from "./security-panel";
 import SettingsPanel from "./settings-panel";
+import SkillsPanel from "./SkillsPanel";
 import { copyText } from "@/lib/clipboard";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { MissionClock } from "./MissionClock";
@@ -78,7 +79,32 @@ const decisionLabels: Record<"approve" | "reject" | "hold", string> = { approve:
 
 function eventSummary(event: ActivityEvent) { return eventLabels[event.kind] || event.kind.replaceAll("_", " "); }
 
-type ViewMode = "overview" | "board" | "security" | "settings";
+function ideaToFallbackTask(idea: IdeaRecord): TaskCard {
+  return {
+    id: idea.hermesTaskId || `idea-${idea.id}`,
+    title: idea.title,
+    body: idea.description,
+    assignee: "pm",
+    status: idea.status === "done" ? "done" : "triage",
+    priority: idea.priority,
+    boardSlug: idea.project || "portfolio",
+    createdAt: idea.createdAt,
+    startedAt: null,
+    completedAt: null,
+    branchName: null,
+    result: null,
+    blockKind: null,
+    lastHeartbeatAt: null,
+    modelOverride: null,
+    parentIds: [],
+    childIds: [],
+    comments: [],
+    runs: [],
+    attachmentCount: 0,
+  };
+}
+
+type ViewMode = "overview" | "board" | "skills" | "security" | "settings";
 type ToastItem = { id: number; text: string; kind: "info" | "success" | "warning" };
 
 const SELECTED_BOARDS_KEY = "aoc_project";
@@ -218,7 +244,13 @@ export default function Dashboard() {
       const snap = await res.json() as DashboardSnapshot;
       setData(snap); setBoard(snap.selectedBoard); setError("");
       setLiveTasks(snap.tasks); setLiveAgents(null); setLiveActivity(snap.activity);
-      setSelectedTask((c) => c ? snap.tasks.find((t) => t.id === c.id) || null : null);
+      setSelectedTask((c) => {
+        if (!c) return null;
+        const updated = snap.tasks.find((t) => t.id === c.id);
+        if (updated) return updated;
+        // Keep currently open task active rather than aggressively wiping it out
+        return c;
+      });
     } catch (e) {
       const msg = e instanceof DOMException && e.name === "AbortError" ? "Przekroczono czas połączenia — spróbuj ponownie." : e instanceof Error ? e.message : "Nie udało się pobrać danych";
       setError(msg);
@@ -472,33 +504,43 @@ export default function Dashboard() {
     void load(slug);
   }, [load]);
 
-  const openTask = useCallback((boardSlug: string, taskOrId: TaskCard | string) => {
+  const openTask = useCallback((boardSlug: string, taskOrId: TaskCard | string, fallbackTask?: TaskCard) => {
     const taskId = typeof taskOrId === "string" ? taskOrId : taskOrId.id;
     setView("board");
+    setBoardSection("board");
+
     if (typeof taskOrId !== "string") {
       setSelectedTask(taskOrId);
       if (board !== boardSlug) {
         selectBoard(boardSlug);
       }
-    } else {
-      if (board !== boardSlug) {
-        selectBoard(boardSlug);
-      }
-      const existing = tasksRef.current.find((t) => t.id === taskId);
-      if (existing) {
-        setSelectedTask(existing);
-      } else {
-        void fetch(`/api/snapshot?board=${encodeURIComponent(boardSlug)}`, { cache: "no-store" })
-          .then((r) => (r.ok ? (r.json() as Promise<DashboardSnapshot>) : null))
-          .then((snap) => {
-            if (snap) {
-              const t = snap.tasks.find((item) => item.id === taskId);
-              if (t) setSelectedTask(t);
-            }
-          })
-          .catch(() => {});
-      }
+      return;
     }
+
+    if (fallbackTask) {
+      setSelectedTask(fallbackTask);
+    }
+
+    const existing = tasksRef.current.find((t) => t.id === taskId);
+    if (existing) {
+      setSelectedTask(existing);
+      if (board !== existing.boardSlug) {
+        selectBoard(existing.boardSlug);
+      }
+      return;
+    }
+
+    void fetch(`/api/task?id=${encodeURIComponent(taskId)}&board=${encodeURIComponent(boardSlug)}`, { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ task: TaskCard; board: string }>) : null))
+      .then((res) => {
+        if (res?.task) {
+          setSelectedTask(res.task);
+          if (board !== res.board) {
+            selectBoard(res.board);
+          }
+        }
+      })
+      .catch(() => {});
   }, [board, selectBoard]);
 
   // Odpowiedzi filtrujemy po (board, taskId) i odrzucamy te, które dotyczą już
@@ -920,6 +962,7 @@ export default function Dashboard() {
       { label: focusMode ? "Wyłącz tryb focus" : "Włącz tryb focus", icon: "◎", hint: "Pełny ekran boardu", onRun: () => setFocusMode((f) => !f) },
       { label: dense ? "Gęstość: normalna" : "Gęstość: kompaktowa", icon: "▤", hint: "Zagęść widok", onRun: () => setDense((d) => !d) },
       { label: "Skróty klawiaturowe", icon: "⌘", hint: "Cheatsheet", onRun: () => setShortcutsOpen(true) },
+      { label: "Skille & Lift (NVIDIA Evaluator)", icon: "✦", hint: "Capability Governance", onRun: () => setView("skills") },
       { label: "Audyt (dziennik)", icon: "⚿", hint: "Bezpieczeństwo", onRun: () => setView("security") },
     ]} />
 
@@ -1110,6 +1153,7 @@ export default function Dashboard() {
         <button className={`nav-item ${view === "board" && boardSection === "inbox" ? "active" : ""}`} onClick={() => { setBoardSection("inbox"); if (view === "board") scrollTo("inbox"); else { pendingScrollRef.current = "inbox"; setView("board"); } }}><span>＋</span> CEO Inbox</button>
         <button className={`nav-item mobile-more ${view === "board" && boardSection === "agents" ? "active" : ""}`} onClick={() => { setBoardSection("agents"); if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
         <button className="nav-item" onClick={() => setSearchOpen(true)}><span>⌕</span> Search <kbd>⌘K</kbd></button>
+        <button className={`nav-item ${view === "skills" ? "active" : ""}`} onClick={() => setView("skills")}><span>✦</span> Skille & Lift</button>
         <button className={`nav-item mobile-more ${view === "security" ? "active" : ""}`} onClick={() => setView("security")}><span>⚿</span> Audyt</button>
         <button className={`nav-item mobile-more ${view === "settings" ? "active" : ""}`} onClick={() => setView("settings")}><span>⚙</span> Ustawienia</button>
         <button type="button" className="nav-item logout-btn" onClick={() => void performLogout()} title="Wyloguj z panelu CEO">
@@ -1119,6 +1163,7 @@ export default function Dashboard() {
       </nav>
       {isMobile && moreOpen && <div className="more-menu" role="menu" aria-label="Więcej opcji">
         <button className={`more-item ${view === "board" && boardSection === "agents" ? "active" : ""}`} role="menuitem" onClick={() => { setMoreOpen(false); setBoardSection("agents"); if (view === "board") scrollTo("agents"); else { pendingScrollRef.current = "agents"; setView("board"); } }}><span>◎</span> Agents</button>
+        <button className={`more-item ${view === "skills" ? "active" : ""}`} role="menuitem" onClick={() => { setMoreOpen(false); setView("skills"); }}><span>✦</span> Skille & Lift</button>
         <button className={`more-item ${view === "security" ? "active" : ""}`} role="menuitem" onClick={() => { setMoreOpen(false); setView("security"); }}><span>⚿</span> Audyt</button>
         <button className={`more-item ${view === "settings" ? "active" : ""}`} role="menuitem" onClick={() => { setMoreOpen(false); setView("settings"); }}><span>⚙</span> Ustawienia</button>
       </div>}
@@ -1192,7 +1237,8 @@ export default function Dashboard() {
       </section>
     </main>}
 
-    {/* --- BOARD --- */}
+    {view === "skills" && <main className="main-content" id="skills"><SkillsPanel /></main>}
+
     {view === "security" && <main className="main-content" id="security"><SecurityPanel /></main>}
 
     {view === "settings" && <main className="main-content" id="settings"><SettingsPanel /></main>}
@@ -1254,10 +1300,11 @@ export default function Dashboard() {
                 className={`idea-card ${idea.hermesTaskId ? "clickable" : ""}`}
                 onClick={() => {
                   if (idea.hermesTaskId) {
-                    openTask(idea.project || "portfolio", idea.hermesTaskId);
+                    const targetBoard = idea.project || "portfolio";
+                    openTask(targetBoard, idea.hermesTaskId, ideaToFallbackTask(idea));
                   }
                 }}
-                title={idea.hermesTaskId ? `Kliknij, aby otworzyć powiązane zadanie w Hermesie (${idea.project})` : undefined}
+                title={idea.hermesTaskId ? `Kliknij, aby otworzyć zadanie ${idea.hermesTaskId}` : undefined}
               >
                 <div>
                   <span className={`idea-status ${idea.status}`}>{idea.status}</span>
@@ -1272,9 +1319,10 @@ export default function Dashboard() {
                       className="idea-hermes-link-btn"
                       onClick={(e) => {
                         e.stopPropagation();
-                        openTask(idea.project || "portfolio", idea.hermesTaskId!);
+                        const targetBoard = idea.project || "portfolio";
+                        openTask(targetBoard, idea.hermesTaskId!, ideaToFallbackTask(idea));
                       }}
-                      title={`Otwórz zadanie ${idea.hermesTaskId} w projekcie ${idea.project}`}
+                      title={`Otwórz zadanie ${idea.hermesTaskId}`}
                     >
                       <span>Hermes:</span> <strong>{idea.hermesTaskId}</strong> <span className="arrow">↗</span>
                     </button>

@@ -302,6 +302,29 @@ export function getSnapshot(requestedBoard?: string | null): DashboardSnapshot {
   };
 }
 
+export function findTask(taskId: string, preferredBoard?: string | null): { task: TaskCard; board: string } | null {
+  const boards = discoverBoards();
+  if (!boards.length) return null;
+
+  if (preferredBoard) {
+    const pref = boards.find((b) => b.slug === preferredBoard);
+    if (pref) {
+      const tasks = safeReadTasks(pref);
+      const found = tasks.find((t) => t.id === taskId);
+      if (found) return { task: found, board: pref.slug };
+    }
+  }
+
+  for (const b of boards) {
+    if (b.slug === preferredBoard) continue;
+    const tasks = safeReadTasks(b);
+    const found = tasks.find((t) => t.id === taskId);
+    if (found) return { task: found, board: b.slug };
+  }
+
+  return null;
+}
+
 export function activityCursor(): string {
   return discoverBoards().map((board) => {
     try {

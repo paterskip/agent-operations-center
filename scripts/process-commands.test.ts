@@ -138,15 +138,29 @@ describe("processDecision — decision actions", () => {
     expect(dec?.result_status).toBe("ready");
   });
 
-  it("approve: fails-closed when status changed mid-flight (blocked→done)", () => {
+  it("approve: allows review status when task was blocked during review", () => {
     const decId = makeDecision(db, "approve", "myboard", "T-1", "blocked", "LGTM");
-    // before.status === "blocked" (matches fromStatus), after unblock it became "done"
-    // which is NOT in allowed ["ready","todo"] → fail
     let showCount = 0;
     const fakeExec = (_board: string, args: string[]) => {
       if (args[0] === "show") {
         showCount++;
-        return JSON.stringify({ task: { id: "T-1", status: showCount === 1 ? "blocked" : "done" } });
+        return JSON.stringify({ task: { id: "T-1", status: showCount === 1 ? "blocked" : "review" } });
+      }
+      expect(args[0]).toBe("unblock");
+      return JSON.stringify({ ok: true });
+    };
+
+    expect(processDecision(db, fakeExec)).toBe(true);
+    const dec = db.prepare("SELECT status, result_status FROM task_decisions WHERE id=?").get(decId) as { status: string; result_status: string } | undefined;
+    expect(dec?.status).toBe("done");
+    expect(dec?.result_status).toBe("review");
+  });
+
+  it("approve: fails when unblock still leaves task blocked", () => {
+    const decId = makeDecision(db, "approve", "myboard", "T-1", "blocked", "LGTM");
+    const fakeExec = (_board: string, args: string[]) => {
+      if (args[0] === "show") {
+        return JSON.stringify({ task: { id: "T-1", status: "blocked" } });
       }
       return JSON.stringify({ ok: true });
     };
@@ -157,10 +171,22 @@ describe("processDecision — decision actions", () => {
     expect(dec?.last_error).toContain("Unexpected resulting status");
   });
 
-  it("approve: fails when before.status != from_status", () => {
+  it("approve: handles concurrent unblock idempotently (already resolved)", () => {
     const decId = makeDecision(db, "approve", "b1", "T-9", "blocked", "LGTM");
     const fakeExec = (_board: string, args: string[]) => {
       if (args[0] === "show") return JSON.stringify({ task: { id: "T-9", status: "running" } });
+      return JSON.stringify({});
+    };
+    expect(processDecision(db, fakeExec)).toBe(true);
+    const dec = db.prepare("SELECT status, result_status FROM task_decisions WHERE id=?").get(decId) as { status: string; result_status: string } | undefined;
+    expect(dec?.status).toBe("done");
+    expect(dec?.result_status).toBe("running");
+  });
+
+  it("approve: fails when before.status != from_status and task is not resolved", () => {
+    const decId = makeDecision(db, "approve", "b1", "T-9", "scheduled", "LGTM");
+    const fakeExec = (_board: string, args: string[]) => {
+      if (args[0] === "show") return JSON.stringify({ task: { id: "T-9", status: "blocked" } });
       return JSON.stringify({});
     };
     processDecision(db, fakeExec);

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "review-eval-01-explicit",
+    "kind": "explicit",
+    "prompt": "Przejrzyj poniższy kod i wskaż naruszenia zasad anti-slop:\nconst payload = await res.json() as UserData;\nconst merged = { ...base, ...(isAdmin ? { role: 'admin' } : {}) };",
+    "expectedOutcome": "Wykrycie braku walidacji schematem Zod dla res.json() oraz wykrycie niedozwolonego warunkowego pustego spreadu."
+  },
+  {
+    "id": "review-eval-02-implicit",
+    "kind": "implicit",
+    "prompt": "Oceniaj implementację: const val = obj[key] as string;",
+    "expectedOutcome": "Wskazanie braku wymaganego komentarza '// SAFETY:' wyjaśniającego powód rzutowania lub rekomendacja użycia type-guarda."
+  },
+  {
+    "id": "review-eval-03-negative",
+    "kind": "negative",
+    "prompt": "Napisz wiersz o programowaniu funkcyjnym w Haskellu.",
+    "expectedOutcome": "Agent nie przeprowadza audytu kodu PR ani nie ładuje reguł anti-slop review."
+  }
+]

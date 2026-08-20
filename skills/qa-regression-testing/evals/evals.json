@@ -1,0 +1,14 @@
+[
+  {
+    "id": "qa-eval-01-explicit",
+    "kind": "explicit",
+    "prompt": "Przygotuj zestaw testów jednostkowych Vitest dla nowego endpointu API /api/skills.",
+    "expectedOutcome": "Wygenerowanie testów dla odpowiedzi 200, filtrowania po agencie, walidacji parametrów query oraz obsługi błędów odczytu."
+  },
+  {
+    "id": "qa-eval-02-negative",
+    "kind": "negative",
+    "prompt": "Zmień logo w nagłówku strony na nowe SVG.",
+    "expectedOutcome": "Agent nie generuje rozbudowanego planu testów QA, lecz dokonuje punktowej podmiany assetu graficznego."
+  }
+]

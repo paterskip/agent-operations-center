@@ -1,0 +1,20 @@
+[
+  {
+    "id": "pm-eval-01-explicit",
+    "kind": "explicit",
+    "prompt": "Przeprowadź dekompozycję zadania: Dodanie obsługi logowania przez OAuth2 Google do dashboardu AOC.",
+    "expectedOutcome": "Wygenerowanie atomowych zadań z przypisaniem do ról (coder-backend, coder-frontend, sec, tester) wraz z kryteriami akceptacji i testami."
+  },
+  {
+    "id": "pm-eval-02-implicit",
+    "kind": "implicit",
+    "prompt": "Klient zgłasza, że generowanie raportu PDF w AOC trwa za długo i timeoutuje przy 1000 zadaniach.",
+    "expectedOutcome": "Podział na optymalizację zapytania SQL, paginację/strumieniowanie generowania PDF oraz testy wydajnościowe."
+  },
+  {
+    "id": "pm-eval-03-negative",
+    "kind": "negative",
+    "prompt": "Popraw literówkę w pliku README.md w linii 42.",
+    "expectedOutcome": "Agent nie aktywuje pełnej procedury dekompozycji epika, lecz wskazuje szybką edycję pojedynczego pliku."
+  }
+]

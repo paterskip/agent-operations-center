@@ -94,3 +94,62 @@ export interface DecisionRecord {
   createdAt: number;
   updatedAt: number;
 }
+
+export type SkillDimension = "correctness" | "discoverability" | "effectiveness" | "efficiency" | "security";
+
+export interface SkillBenchmarkDimensionScore {
+  dimension: SkillDimension;
+  baselineScore: number;
+  withSkillScore: number;
+  skillLift: number;
+}
+
+export interface SkillBenchmarkRecord {
+  skillSlug: string;
+  harness: string;
+  evaluatedAt: number;
+  attempts: number;
+  scores: SkillBenchmarkDimensionScore[];
+  tokenUsage: {
+    baselineAvg: number;
+    withSkillAvg: number;
+    tokenDeltaPercent: number;
+  };
+  stepCount: {
+    baselineAvg: number;
+    withSkillAvg: number;
+    stepSavingsPercent: number;
+  };
+  verificationStatus: "verified" | "unverified" | "needs_eval" | "failing";
+  securityGatePassed: boolean;
+}
+
+export interface SkillTestCase {
+  id: string;
+  kind: "explicit" | "implicit" | "contextual" | "negative";
+  prompt: string;
+  expectedOutcome: string;
+}
+
+export interface SkillRecord {
+  slug: string;
+  name: string;
+  version: string;
+  description: string;
+  author: string;
+  triggers: string[];
+  assignedAgents: string[];
+  isVerified: boolean;
+  content: string;
+  testCases: SkillTestCase[];
+  benchmarks: SkillBenchmarkRecord[];
+  overallLift: number;
+}
+
+export interface SkillCatalogSummary {
+  totalSkills: number;
+  verifiedSkills: number;
+  avgSkillLift: number;
+  avgTokenSavings: number;
+  skills: SkillRecord[];
+}

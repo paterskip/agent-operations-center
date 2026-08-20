@@ -18,7 +18,7 @@ export function triggerBroker() {
   if (process.env.NODE_ENV === "test") return;
 
   const hermesBin = process.env.HERMES_BIN || "/usr/local/bin/hermes";
-  if (!fs.existsSync(hermesBin)) {
+  if (!fs.existsSync(/*turbopackIgnore: true*/ hermesBin)) {
     // In container environment without hermes binary: command remains safely queued in SQLite for host broker daemon
     return;
   }

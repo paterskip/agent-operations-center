@@ -106,3 +106,46 @@ export const ProjectCreateSchema = z.object({
     .pipe(z.string().max(250, "Ścieżka max 250 znaków")),
 });
 
+export const SkillFrontmatterSchema = z.object({
+  name: z.string().min(2, "Nazwa skilla za krótka").max(80, "Nazwa skilla za długa"),
+  version: z.string().min(1, "Wersja wymagana").max(20, "Wersja za długa").default("1.0.0"),
+  description: z.string().min(5, "Opis skilla za krótki").max(1000, "Opis skilla za długi"),
+  author: z.string().optional().default("AOC / Hermes Team"),
+  triggers: z.array(z.string().min(1)).min(1, "Wymagany co najmniej jeden trigger"),
+  assignedAgents: z.array(z.string().min(1)).min(1, "Wymagany co najmniej jeden przypisany agent"),
+});
+
+export const SkillTestCaseSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(["explicit", "implicit", "contextual", "negative"]),
+  prompt: z.string().min(3),
+  expectedOutcome: z.string().min(3),
+});
+
+export const SkillDimensionScoreSchema = z.object({
+  dimension: z.enum(["correctness", "discoverability", "effectiveness", "efficiency", "security"]),
+  baselineScore: z.number().min(0).max(100),
+  withSkillScore: z.number().min(0).max(100),
+  skillLift: z.number(),
+});
+
+export const SkillBenchmarkSchema = z.object({
+  skillSlug: z.string().min(1),
+  harness: z.string().default("hermes-docker-sandbox"),
+  evaluatedAt: z.number(),
+  attempts: z.number().default(1),
+  scores: z.array(SkillDimensionScoreSchema),
+  tokenUsage: z.object({
+    baselineAvg: z.number(),
+    withSkillAvg: z.number(),
+    tokenDeltaPercent: z.number(),
+  }),
+  stepCount: z.object({
+    baselineAvg: z.number(),
+    withSkillAvg: z.number(),
+    stepSavingsPercent: z.number(),
+  }),
+  verificationStatus: z.enum(["verified", "unverified", "needs_eval", "failing"]),
+  securityGatePassed: z.boolean(),
+});
+
