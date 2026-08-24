@@ -25,6 +25,71 @@ export function hermesArgs(board, ...args) {
   return ["kanban", "--board", board, ...args];
 }
 
+/**
+ * Resolve the Hermes dashboard plugin API endpoint + auth token from env.
+ * The token is a credential — it lives only in the broker's environment and
+ * is never written to the DB, task cards, comments, or logs.
+ */
+export function hermesApiEnv() {
+  return {
+    url: process.env.AOC_HERMES_API_URL || "http://127.0.0.1:9119",
+    token: process.env.AOC_HERMES_API_TOKEN || "",
+  };
+}
+
+/**
+ * Reopen a completed task back to `todo` over the hermes dashboard kanban
+ * plugin API (`PATCH /api/plugins/kanban/tasks/{id}?board=<b>` with body
+ * `{"status":"todo"}`). The `hermes kanban` CLI cannot perform this
+ * transition, so the broker uses the authenticated HTTP transport instead.
+ *
+ * Fail-closed: throws (never a silent no-op) when the API token is not
+ * configured, when the request cannot be sent, or when the endpoint returns
+ * an error. Returns the resulting task status from the API response.
+ *
+ * @param {string} board
+ * @param {string} taskId
+ * @param {{url:string, token:string}} opts
+ * @param {(input: string|Request, init?: object) => Promise<Response>} fetchImpl
+ */
+export async function httpReopenTask(board, taskId, opts = hermesApiEnv(), fetchImpl = fetch) {
+  const { url, token } = opts;
+  if (!token) {
+    throw new Error(
+      `Hermes API token not configured (AOC_HERMES_API_TOKEN). ` +
+      `Cannot reopen done task ${board}/${taskId} — fail-closed, status unchanged.`
+    );
+  }
+  const target =
+    `${url.replace(/\/+$/, "")}/api/plugins/kanban/tasks/` +
+    `${encodeURIComponent(taskId)}?board=${encodeURIComponent(board)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  let res;
+  try {
+    res = await fetchImpl(target, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({ status: "todo" }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    throw new Error(`Hermes API request failed: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).slice(0, 300);
+    throw new Error(`Hermes API reopen failed (${res.status}): ${detail}`);
+  }
+  const body = await res.json().catch(() => ({}));
+  return body && typeof body.task === "object" && body.task ? body.task.status : undefined;
+}
+
 export function now() { return Math.floor(Date.now() / 1000); }
 
 export function openDb(dbP = dbPath) {
@@ -190,7 +255,7 @@ export function processDecision(db, exec = defaultExec) {
   return true;
 }
 
-export function processMove(db, exec = defaultExec) {
+export async function processMove(db, exec = defaultExec, transport = httpReopenTask) {
   const move = db.prepare("SELECT id,board,task_id taskId,action,from_status fromStatus,to_status toStatus,title,body,assignee,priority,comment FROM task_moves WHERE status='queued' ORDER BY created_at LIMIT 1").get();
   if (!move) return false;
   const ts = now();
@@ -225,7 +290,15 @@ export function processMove(db, exec = defaultExec) {
 
       const transition = `${move.fromStatus}→${move.toStatus}`;
 
-      if (move.fromStatus === "todo" && move.toStatus === "scheduled") {
+      if (move.fromStatus === "done" && move.toStatus === "todo") {
+        // The `hermes kanban` CLI cannot reopen a completed task, so the
+        // broker uses the authenticated HTTP transport to the hermes dashboard
+        // kanban plugin API (done→todo 'reopen').
+        const landed = await transport(move.board, move.taskId);
+        if (landed && landed !== "todo") {
+          throw new Error(`Reopen ${transition} landed at '${landed}' instead of 'todo'`);
+        }
+      } else if (move.fromStatus === "todo" && move.toStatus === "scheduled") {
         exec(move.board, ["schedule", move.taskId, "CEO scheduled via Kanban panel"]);
       } else if (move.fromStatus === "ready" && move.toStatus === "running") {
         exec(move.board, ["claim", move.taskId, "--ttl", "3600"]);
@@ -352,7 +425,7 @@ export function initDb() {
   return db;
 }
 
-export function main() {
+export async function main() {
   if (!fs.existsSync(defaultHermes)) {
     // Hermes CLI binary is not present in this environment (e.g. dashboard container).
     // Safely exit without claiming or failing queued commands so host broker can execute them.
@@ -364,7 +437,8 @@ export function main() {
     let hadWork = false;
     let iterations = 0;
     while (iterations++ < 100) {
-      const worked = runOne(db) || processDecision(db) || processMove(db);
+      // processMove may use the async HTTP reopen transport for done→todo.
+      const worked = Boolean(runOne(db) || processDecision(db) || (await processMove(db)));
       if (!worked) break;
       hadWork = true;
     }
@@ -374,4 +448,4 @@ export function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+if (import.meta.url === `file://${process.argv[1]}`) await main();

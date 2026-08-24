@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 // @ts-expect-error -- process-commands.mjs has JSDoc but no TS declarations (allowJs is off)
-import { ensureTables, runOne, processDecision, processMove, backupKanban, now } from "./process-commands.mjs";
+import { ensureTables, runOne, processDecision, processMove, backupKanban, now, httpReopenTask, hermesApiEnv } from "./process-commands.mjs";
 
 const testsDir = path.join(os.tmpdir(), `aoc-broker-test-${process.pid}-${Date.now()}`);
 let dbPath: string;
@@ -227,7 +227,7 @@ describe("processMove — transitions", () => {
     return id;
   }
 
-  it("todo→scheduled calls hermes schedule", () => {
+  it("todo→scheduled calls hermes schedule", async () => {
     const moveId = makeMove(db, "todo", "scheduled");
     let gotSchedule = false;
     let showCount = 0;
@@ -241,13 +241,13 @@ describe("processMove — transitions", () => {
       if (args[0] === "schedule") { gotSchedule = true; return JSON.stringify({}); }
       return JSON.stringify({});
     };
-    processMove(db, fakeExec);
+    await processMove(db, fakeExec);
     expect(gotSchedule).toBe(true);
     const mv = db.prepare("SELECT status FROM task_moves WHERE id=?").get(moveId) as { status: string } | undefined;
     expect(mv?.status).toBe("done");
   });
 
-  it("running→review calls complete", () => {
+  it("running→review calls complete", async () => {
     const moveId = makeMove(db, "running", "review");
     let c = 0;
     let gotComplete = false;
@@ -260,16 +260,68 @@ describe("processMove — transitions", () => {
       gotComplete = true;
       return JSON.stringify({});
     };
-    processMove(db, exec);
+    await processMove(db, exec);
     expect(gotComplete).toBe(true);
     const mv = db.prepare("SELECT status, result_status FROM task_moves WHERE id=?").get(moveId) as { status: string; result_status: string } | undefined;
     expect(mv?.status).toBe("done");
     expect(mv?.result_status).toBe("review");
   });
 
-  it("unsupported transition → failed", () => {
+  it("done→todo reopens via the HTTP transport", async () => {
     const moveId = makeMove(db, "done", "todo");
-    processMove(db, (_b: string, args: string[]) => {
+    let showCount = 0;
+    const fakeExec = (_board: string, args: string[]) => {
+      if (args[0] !== "show") throw new Error("done→todo must not call the CLI for the transition");
+      showCount++;
+      return JSON.stringify({
+        task: { id: "T-1", status: showCount === 1 ? "done" : "todo" },
+      });
+    };
+    let called: { board: string; taskId: string } | null = null;
+    const fakeTransport = async (board: string, taskId: string) => {
+      called = { board, taskId };
+      return "todo";
+    };
+    const ok = await processMove(db, fakeExec, fakeTransport);
+    expect(ok).toBe(true);
+    expect(called).toEqual({ board: "b1", taskId: "T-1" });
+    const mv = db.prepare("SELECT status, result_status FROM task_moves WHERE id=?").get(moveId) as { status: string; result_status: string } | undefined;
+    expect(mv?.status).toBe("done");
+    expect(mv?.result_status).toBe("todo");
+  });
+
+  it("done→todo transport reports unexpected status → failed", async () => {
+    const moveId = makeMove(db, "done", "todo");
+    const fakeExec = (_board: string, args: string[]) => {
+      if (args[0] === "show") return JSON.stringify({ task: { id: "T-1", status: "done" } });
+      return JSON.stringify({});
+    };
+    const fakeTransport = async () => "review"; // wrong landing
+    await processMove(db, fakeExec, fakeTransport);
+    const mv = db.prepare("SELECT status, last_error FROM task_moves WHERE id=?").get(moveId) as { status: string; last_error: string } | undefined;
+    expect(mv?.status).toBe("failed");
+    expect(mv?.last_error).toContain("instead of 'todo'");
+  });
+
+  it("done→todo is fail-closed when the transport throws (no token)", async () => {
+    const moveId = makeMove(db, "done", "todo");
+    const fakeExec = (_board: string, args: string[]) => {
+      if (args[0] === "show") return JSON.stringify({ task: { id: "T-1", status: "done" } });
+      return JSON.stringify({});
+    };
+    const failingTransport = async () => {
+      throw new Error("Hermes API token not configured (AOC_HERMES_API_TOKEN)");
+    };
+    await processMove(db, fakeExec, failingTransport);
+    const mv = db.prepare("SELECT status, last_error FROM task_moves WHERE id=?").get(moveId) as { status: string; last_error: string } | undefined;
+    expect(mv?.status).toBe("failed");
+    expect(mv?.last_error).toContain("AOC_HERMES_API_TOKEN");
+    // Audited as a failed move, but no CLI was invoked → status unchanged.
+  });
+
+  it("unsupported transition → failed", async () => {
+    const moveId = makeMove(db, "done", "ready");
+    await processMove(db, (_b: string, args: string[]) => {
       if (args[0] === "show") return JSON.stringify({ task: { id: "T-1", status: "done" } });
       return JSON.stringify({});
     });
@@ -278,7 +330,7 @@ describe("processMove — transitions", () => {
     expect(mv?.last_error).toContain("Unsupported transition");
   });
 
-  it("create action calls hermes create", () => {
+  it("create action calls hermes create", async () => {
     const ts = now();
     const id = `mv-create-${ts}`;
     db.prepare(`INSERT INTO task_moves(id,board,task_id,action,from_status,to_status,title,body,assignee,priority,comment,status,created_at,updated_at)
@@ -290,29 +342,73 @@ describe("processMove — transitions", () => {
       if (args[0] === "create") { gotCreate = true; return JSON.stringify({ id: "created-123" }); }
       return JSON.stringify({});
     };
-    processMove(db, exec);
+    await processMove(db, exec);
     expect(gotCreate).toBe(true);
     const mv = db.prepare("SELECT status, result_status FROM task_moves WHERE id=?").get(id) as { status: string; result_status: string } | undefined;
     expect(mv?.status).toBe("done");
     expect(mv?.result_status).toBe("created:created-123");
   });
 
-  it("returns false when no queued moves", () => {
+  it("returns false when no queued moves", async () => {
     const exec = () => { throw new Error("noop"); };
-    expect(processMove(db, exec)).toBe(false);
+    expect(await processMove(db, exec)).toBe(false);
   });
 
-  it("fail-closed: status didn't change → failed", () => {
+  it("fail-closed: status didn't change → failed", async () => {
     const moveId = makeMove(db, "todo", "scheduled");
     // before.status === "todo" (== fromStatus), after.status === "todo" (unchanged)
     const exec = (_board: string, args: string[]) => {
       if (args[0] === "show") return JSON.stringify({ task: { id: "T-1", status: "todo" } });
       return JSON.stringify({});
     };
-    processMove(db, exec);
+    await processMove(db, exec);
     const mv = db.prepare("SELECT status, last_error FROM task_moves WHERE id=?").get(moveId) as { status: string; last_error: string } | undefined;
     expect(mv?.status).toBe("failed");
     expect(mv?.last_error).toContain("did not change status");
+  });
+});
+
+describe("httpReopenTask — authenticated HTTP reopen transport", () => {
+  it("fail-closed without a token — never calls fetch", async () => {
+    let called = false;
+    const fetchImpl = async () => { called = true; throw new Error("must not be called"); };
+    await expect(httpReopenTask("b1", "T-1", { url: "http://127.0.0.1:9119", token: "" }, fetchImpl))
+      .rejects.toThrow("AOC_HERMES_API_TOKEN");
+    expect(called).toBe(false);
+  });
+
+  it("builds PATCH /api/plugins/kanban/tasks/{id}?board=<b> with the bearer token", async () => {
+    let seenUrl = "";
+    const fetchImpl = async (url: string | Request, init?: object) => {
+      seenUrl = String(url);
+      const meta = init as { method?: string; headers?: Record<string, string>; body?: string };
+      expect(meta.method).toBe("PATCH");
+      expect(meta.headers?.["Authorization"]).toBe("Bearer tok123");
+      expect(JSON.parse(meta.body ?? "")).toEqual({ status: "todo" });
+      return { ok: true, json: async () => ({ task: { id: "T-1", status: "todo" } }) } as unknown as Response;
+    };
+    const status = await httpReopenTask("portfolio", "task_abc", { url: "http://127.0.0.1:9119", token: "tok123" }, fetchImpl);
+    expect(status).toBe("todo");
+    expect(seenUrl).toBe("http://127.0.0.1:9119/api/plugins/kanban/tasks/task_abc?board=portfolio");
+  });
+
+  it("rejects on non-2xx — surfaces API detail", async () => {
+    const fetchImpl = async () => ({ ok: false, status: 409, text: async () => "status transition to 'todo' not valid" } as unknown as Response);
+    await expect(httpReopenTask("b1", "T-1", { url: "http://x", token: "tok" }, fetchImpl))
+      .rejects.toThrow(/409.*not valid/s);
+  });
+
+  it("hermesApiEnv defaults when env unset", () => {
+    const prevU = process.env.AOC_HERMES_API_URL;
+    const prevT = process.env.AOC_HERMES_API_TOKEN;
+    delete process.env.AOC_HERMES_API_URL;
+    delete process.env.AOC_HERMES_API_TOKEN;
+    try {
+      expect(hermesApiEnv()).toEqual({ url: "http://127.0.0.1:9119", token: "" });
+    } finally {
+      if (prevU !== undefined) process.env.AOC_HERMES_API_URL = prevU;
+      if (prevT !== undefined) process.env.AOC_HERMES_API_TOKEN = prevT;
+    }
   });
 });
 
