@@ -106,11 +106,22 @@ export const ProjectCreateSchema = z.object({
     .pipe(z.string().max(250, "Ścieżka max 250 znaków")),
 });
 
+export const DevLogMDXContentSchema = z.object({
+  title: z.string().min(3).max(160),
+  description: z.string().min(10).max(500),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, "Format daty YYYY-MM-DD"),
+  tags: z.array(z.string().max(30)).max(10),
+  takeaways: z.array(z.string().max(200)).optional().default([]),
+  content: z
+    .string()
+    .refine((val) => !/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi.test(val), "Zabroniony znacznik <script>")
+    .refine((val) => !/javascript:/gi.test(val), "Zabroniony protokół javascript:")
+    .refine((val) => !/on\w+\s*=/gi.test(val), "Zabronione wierszowe zdarzenia HTML (on*)"),
+});
+
 export const AgentBudgetConfigSchema = z.object({
   agentSlug: z.string().min(1, "Brak identyfikatora agenta"),
   monthlyCostLimitUsd: z.number().nonnegative("Limit kosztów nie może być ujemny"),
   monthlyTokenLimit: z.number().int().nonnegative("Limit tokenów nie może być ujemny"),
   pauseOnExceed: z.boolean().default(true),
 });
-
-

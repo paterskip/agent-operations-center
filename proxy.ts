@@ -55,11 +55,27 @@ export function proxy(request: NextRequest) {
     response.headers.set("Content-Security-Policy", csp);
     return response;
   };
-  if (process.env.NODE_ENV !== "production" && process.env.AOC_DISABLE_AUTH === "true") return pass();
   const username = request.headers.get("remote-user");
   const groups = (request.headers.get("remote-groups") || "").split(",").map((value) => value.trim());
-  if (username === process.env.AOC_USERNAME && groups.includes("ceo")) return pass();
+  const isCeo = username === process.env.AOC_USERNAME && groups.includes("ceo");
+  const isObserver = groups.includes("observer") || groups.includes("guest");
+
+  if (isCeo) {
+    requestHeaders.set("x-user-role", "ceo");
+    return pass();
+  }
+
+  if (isObserver) {
+    requestHeaders.set("x-user-role", "observer");
+    // Block mutating HTTP actions for observer role (Read-Only access)
+    if (["POST", "PATCH", "PUT", "DELETE"].includes(request.method)) {
+      return denied("Dostęp w trybie tylko do odczytu (Rola: Observer)", 403, csp);
+    }
+    return pass();
+  }
+
   return denied("Authentication required", 401, csp);
 }
+
 
 export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };

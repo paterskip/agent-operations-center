@@ -50,22 +50,25 @@ describe("proxy auth", () => {
     } finally { restore(); }
   });
 
-  it("allows dev bypass when AOC_DISABLE_AUTH=true and NODE_ENV!=production", () => {
-    const restore = withEnv({ NODE_ENV: "development", AOC_DISABLE_AUTH: "true", AOC_USERNAME: "ceo" });
+  it("allows observer role for GET request but blocks POST with 403", () => {
+    const restore = withEnv({ NODE_ENV: "production", AOC_USERNAME: "ceo" });
     try {
-      const res = proxy(req());
-      expect(res.status).toBe(200);
-    } finally { restore(); }
-  });
+      const getReq = new NextRequest("https://agents.paterski.com/api/snapshot", {
+        method: "GET",
+        headers: { "remote-user": "recruiter", "remote-groups": "observer" },
+      });
+      expect(proxy(getReq).status).toBe(200);
 
-  it("does NOT allow dev bypass in production even if AOC_DISABLE_AUTH=true", () => {
-    const restore = withEnv({ NODE_ENV: "production", AOC_DISABLE_AUTH: "true", AOC_USERNAME: "ceo" });
-    try {
-      const res = proxy(req());
-      expect(res.status).toBe(401);
+      const postReq = new NextRequest("https://agents.paterski.com/api/tasks", {
+        method: "POST",
+        headers: { "remote-user": "recruiter", "remote-groups": "observer" },
+      });
+      const postRes = proxy(postReq);
+      expect(postRes.status).toBe(403);
     } finally { restore(); }
   });
 });
+
 
 describe("proxy rate limiting", () => {
   it("returns 429 after 60 requests from the same IP within the window", () => {

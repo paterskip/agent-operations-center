@@ -26,7 +26,17 @@ export class HermesBrokerClient {
     return snap.tasks.find((t) => t.id === taskId) || null;
   }
 
-  public executeTransition(boardSlug: string, taskId: string, targetStatus: TaskStatus): { success: boolean; message: string } {
+  public verifyToken(inputToken: string): boolean {
+    const expectedToken = process.env.AOC_HERMES_API_TOKEN || "";
+    if (!expectedToken || !inputToken) return false;
+    return inputToken === expectedToken;
+  }
+
+  public executeTransition(boardSlug: string, taskId: string, targetStatus: TaskStatus, token?: string): { success: boolean; message: string } {
+    if (token !== undefined && !this.verifyToken(token)) {
+      return { success: false, message: "Nieprawidłowy token bramki API brokera (Unauthorized)" };
+    }
+
     const dbPath = boardSlug === "default" 
       ? path.resolve(this.kanbanRoot, "..", "kanban.db") 
       : path.join(this.kanbanRoot, "boards", boardSlug, "kanban.db");
@@ -60,3 +70,4 @@ export class HermesBrokerClient {
 }
 
 export const brokerClient = new HermesBrokerClient();
+
