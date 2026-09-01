@@ -118,7 +118,14 @@ function readStoredFlag(key: string) {
 }
 
 export default function Dashboard() {
-  const [view, setView] = useState<ViewMode>("overview");
+  const [view, setView] = useState<ViewMode>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("board")) return "board";
+    }
+    return "overview";
+  });
+
   const [boardSection, setBoardSection] = useState<"board" | "inbox" | "agents">("board");
   const [data, setData] = useState<DashboardSnapshot | null>(null);
   const [liveTasks, setLiveTasks] = useState<TaskCard[] | null>(null);
@@ -1354,8 +1361,9 @@ export default function Dashboard() {
           const wl = tasksPerAgent.get(agent.slug);
           return <button key={agent.slug} onClick={() => setAgentFilter(agentFilter === agent.slug ? "all" : agent.slug)} className={`agent-card ${agent.status} ${agentFilter === agent.slug ? "selected" : ""}`}>
             <div className="agent-avatar">{roleIcon[agent.slug] || "◇"}<span /></div>
-            <div className="agent-copy"><strong>{agent.name}</strong><small>{agent.status === "working" ? agent.currentTask : agent.status === "blocked" ? `${agent.blocked} blocked` : "Dostępny"}{wl && ` · ${wl.running || 0} active / ${wl.total || 0} total`}</small></div>
-            <span className="agent-state" title={`${wl?.total || 0} zadań ogółem, ${wl?.running || 0} w toku, ${wl?.blocked || 0} zablokowanych`}>{agent.status}</span>
+            <div className="agent-copy"><strong>{agent.name}</strong><small>{agent.status === "working" ? agent.currentTask : agent.status === "blocked" ? `${agent.blocked} blocked` : "Dostępny"}{wl ? ` · ${wl.total || 0} na tablicy` : ""}</small></div>
+            <span className="agent-state" title={`${wl?.total || 0} zadań na aktywnej tablicy (${wl?.running || 0} w toku, ${wl?.blocked || 0} zablokowanych)`}>{agent.status}</span>
+
           </button>;
         })}</div>
         {scorecard && scorecard.length > 0 && <div className="scorecard" aria-label="Wyniki agentów (30 dni)">
@@ -1401,11 +1409,14 @@ export default function Dashboard() {
                 aria-label="Filtruj po priorytecie"
               >
                 <option value="all">Wszystkie priorytety</option>
+                <option value="5">P5 — Najwyższy (SEO / Urgent)</option>
                 <option value="4">P4 — Krytyczny</option>
                 <option value="3">P3 — Wysoki</option>
                 <option value="2">P2 — Normalny</option>
                 <option value="1">P1 — Niski</option>
+                <option value="0">P0 — Propozycje / Triage</option>
               </select>
+
               <select
                 className="filter-select"
                 value={agentFilter}
