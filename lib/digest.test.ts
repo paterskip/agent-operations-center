@@ -93,7 +93,10 @@ const mockScorecard: AgentScorecardRow[] = [
     total: 15,
     sessions30: 10,
     tokens30: 1500000,
-    cost30: 4.5,
+    cost30: 12.5,
+    costLimitUsd: null,
+    tokenLimit: null,
+    budgetAlert: false,
   },
 ];
 
@@ -108,6 +111,7 @@ describe("generateDailyDigest", () => {
     expect(md).toContain("`T-1`");
     expect(md).toContain("Efektywność Agentów (30 dni)");
     expect(md).toContain("Software Engineer");
-    expect(md).toContain("$4.50");
+    expect(md).toContain("$12.50");
   });
 });
+

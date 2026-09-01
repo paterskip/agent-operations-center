@@ -366,3 +366,34 @@ export function activityDelta(fromCursor: string): ActivityEntry[] {
   }
   return out.sort((a, b) => b.id - a.id).slice(0, 20);
 }
+
+export function getActivityTimelineReplay(boardSlug: string, limit = 50): ActivityEntry[] {
+  const boards = discoverBoards();
+  const target = boards.find((b) => b.slug === boardSlug) || boards[0];
+  if (!target) return [];
+
+  try {
+    const db = openReadOnly(target.dbPath);
+    try {
+      const rows = db.prepare(
+        `SELECT e.id, e.kind, e.created_at, e.task_id, t.title, t.assignee
+         FROM task_events e LEFT JOIN tasks t ON t.id = e.task_id
+         ORDER BY e.created_at DESC LIMIT ?`
+      ).all(limit) as AnyRow[];
+      return rows.map((r) => ({
+        id: Number(r.id),
+        board: target.slug,
+        kind: String(r.kind),
+        taskId: String(r.task_id),
+        taskTitle: String(r.title || ""),
+        assignee: r.assignee == null ? null : String(r.assignee),
+        createdAt: Number(r.created_at),
+      }));
+    } finally {
+      db.close();
+    }
+  } catch {
+    return [];
+  }
+}
+

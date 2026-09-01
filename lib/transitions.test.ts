@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ALLOWED_DROPS, isAllowedMove } from "./transitions";
 
-describe("Kanban transition table (CLI-executable only)", () => {
+describe("Kanban transition table", () => {
   it("allows the native CLI transitions", () => {
     expect(isAllowedMove("todo", "scheduled")).toBe(true); // schedule
     expect(isAllowedMove("ready", "running")).toBe(true); // claim
@@ -10,14 +10,19 @@ describe("Kanban transition table (CLI-executable only)", () => {
     expect(isAllowedMove("review", "ready")).toBe(true); // reopen-review
   });
 
-  it("rejects transitions the hermes CLI cannot execute", () => {
+  it("allows done→todo reopen (broker executes it over the dashboard plugin API HTTP transport)", () => {
+    expect(isAllowedMove("done", "todo")).toBe(true); // HTTP reopen, not CLI
+  });
+
+  it("rejects transitions nothing can execute", () => {
     // comment-based moves do NOT change status (verified 2026-08-12)
     expect(isAllowedMove("triage", "todo")).toBe(false); // specify needs aux LLM
     expect(isAllowedMove("scheduled", "todo")).toBe(false);
     expect(isAllowedMove("scheduled", "ready")).toBe(false); // promote: todo|blocked only
     expect(isAllowedMove("ready", "todo")).toBe(false);
     expect(isAllowedMove("review", "done")).toBe(false);
-    expect(isAllowedMove("done", "todo")).toBe(false);
+    expect(isAllowedMove("done", "review")).toBe(false); // only done→todo is reopenable
+    expect(isAllowedMove("done", "ready")).toBe(false);
     expect(isAllowedMove("blocked", "ready")).toBe(false); // decisions only (unblock)
     expect(isAllowedMove("blocked", "review")).toBe(false);
   });
