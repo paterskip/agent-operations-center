@@ -36,9 +36,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Podaj powód (minimum 5 znaków)" }, { status: 400 });
     }
 
-    let snapshot = getSnapshot(board);
+    const snapshot = getSnapshot(board);
     let task = snapshot.selectedBoard === board ? snapshot.tasks.find((item) => item.id === taskId) : null;
     let actualBoard = board;
+
 
     if (!task) {
       // Fallback: search for task across all boards to handle cross-board decisions securely
