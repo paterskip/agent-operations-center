@@ -15,10 +15,11 @@ export const TaskCreateSchema = z.object({
     .optional()
     .nullable()
     .transform((s) => (s ? s.trim() || null : null)),
-  priority: z.number({ message: "Nieprawidłowe dane priorytetu (1-4)" }).refine((n): n is 1 | 2 | 3 | 4 => [1, 2, 3, 4].includes(n), {
-    message: "Nieprawidłowe dane priorytetu (1-4)",
+  priority: z.number({ message: "Nieprawidłowe dane priorytetu (0-5)" }).refine((n): n is 0 | 1 | 2 | 3 | 4 | 5 => [0, 1, 2, 3, 4, 5].includes(n), {
+    message: "Nieprawidłowe dane priorytetu (0-5)",
   }),
 });
+
 
 export const TaskPatchSchema = z.object({
   board: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "Nieprawidłowy board"),

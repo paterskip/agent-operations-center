@@ -71,6 +71,41 @@ describe("POST /api/decisions", () => {
     });
   });
 
+  it("enqueues approve decision on blocked task with needs_input blockKind", async () => {
+    mockGetSnapshot.mockReturnValue({
+      selectedBoard: "portfolio",
+      tasks: [{ id: "t_ea0c8d82", status: "blocked", blockKind: "needs_input" }],
+    });
+    mockEnqueueDecision.mockReturnValue({ id: "dec-2", status: "queued" });
+
+    const { POST } = await import("./route");
+    const req = new NextRequest("http://localhost:3010/api/decisions", {
+      method: "POST",
+      headers: {
+        origin: "http://localhost:3010",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        board: "portfolio",
+        taskId: "t_ea0c8d82",
+        action: "approve",
+        comment: "Approve quarantine rule and redirect strategy",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(202);
+    expect(mockEnqueueDecision).toHaveBeenCalledWith({
+      board: "portfolio",
+      taskId: "t_ea0c8d82",
+      action: "approve",
+      fromStatus: "blocked",
+      toStatus: null,
+      comment: "Approve quarantine rule and redirect strategy",
+    });
+  });
+
+
   it("rejects action if task status is not allowed by policy", async () => {
     mockGetSnapshot.mockReturnValue({
       selectedBoard: "main-board",
