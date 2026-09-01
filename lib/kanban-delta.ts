@@ -33,18 +33,23 @@ export type ActivityEntry = {
  *   an agent works; diffing them would re-render cards constantly).
  * - Returns the SAME array reference when nothing changed (no re-render).
  */
-export function applyTaskDeltas<T extends TaskCardLike>(tasks: T[], deltas: TaskDelta[]): T[] {
+export function applyTaskDeltas<T extends TaskCardLike>(tasks: T[], deltas: TaskDelta[], activeBoardSlug?: string): T[] {
   if (!deltas.length) return tasks;
   let changed = false;
   const next = tasks.map((t) => {
     const d = deltas.find((x) => x.id === t.id);
     if (!d) return t;
+    // Prevent cross-board pollution: if activeBoardSlug is set, ignore deltas for tasks on other boards
+    const taskBoard = t.boardSlug || (t as unknown as { board?: string }).board || activeBoardSlug;
+    if (activeBoardSlug && d.board !== activeBoardSlug && taskBoard !== activeBoardSlug) return t;
+
     if (d.status === t.status && d.assignee === t.assignee) return t;
     changed = true;
     return { ...t, status: d.status, assignee: d.assignee, boardSlug: d.board };
   });
   return changed ? next : tasks;
 }
+
 
 /** Prepend new activity entries, dedupe by id, cap the feed length. */
 export function mergeActivity<T extends { id: number }>(prev: T[], incoming: T[], cap = 60): T[] {

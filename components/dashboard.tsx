@@ -326,12 +326,13 @@ export default function Dashboard() {
     const es = new EventSource("/api/events");
     const apply = (payload: { tasks?: TaskDelta[]; agents?: AgentSummary[]; activity?: ActivityEntry[] }) => {
       if (payload.tasks?.length) {
-        setLiveTasks((prev) => applyTaskDeltas(prev ?? dataRef.current?.tasks ?? [], payload.tasks!));
+        setLiveTasks((prev) => applyTaskDeltas(prev ?? dataRef.current?.tasks ?? [], payload.tasks!, boardRef.current));
         // Event-driven scorecard refresh: if any task status changed or completed
         if (payload.tasks.some((t) => t.status != null)) {
           triggerScorecardRefresh();
         }
       }
+
       if (payload.agents?.length) setLiveAgents(payload.agents);
       if (payload.activity?.length) {
         const incomingEvents: ActivityEvent[] = payload.activity.map((entry) => ({

@@ -38,7 +38,16 @@ describe("applyTaskDeltas", () => {
   it("handles empty deltas without allocation", () => {
     expect(applyTaskDeltas(base, [])).toBe(base);
   });
+
+  it("ignores deltas from other boards when activeBoardSlug is specified", () => {
+    const deltas = [
+      { id: "t1", status: "ready", assignee: "coder", board: "other-board", lastHeartbeatAt: 1 },
+    ];
+    const next = applyTaskDeltas(base, deltas, "portfolio");
+    expect(next).toBe(base); // deltas from other-board ignored when active board is portfolio
+  });
 });
+
 
 describe("mergeActivity", () => {
   const e = (id: number): ActivityEntry => ({ id, board: "default", kind: "completed", taskId: `t${id}`, taskTitle: "x", assignee: null, createdAt: id });
