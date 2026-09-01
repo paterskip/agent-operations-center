@@ -247,8 +247,13 @@ export function processDecision(db, exec = defaultExec) {
 
     const reason = decision.comment || "Decyzja CEO: zaakceptowano do dalszej pracy. PM decyduje o przydziale.";
     if (decision.action === "approve" || decision.action === "resume") {
-      if (!["blocked", "scheduled"].includes(before.status)) throw new Error(`Cannot resume task in ${before.status}`);
-      exec(decision.board, ["unblock", decision.taskId, "--reason", `CEO APPROVED: ${reason}`]);
+      if (!["blocked", "scheduled", "triage", "todo"].includes(before.status)) throw new Error(`Cannot resume task in ${before.status}`);
+      if (["triage", "todo"].includes(before.status)) {
+        // If task is in triage or todo, approval promotes it or leaves a CEO approval comment
+        exec(decision.board, ["comment", decision.taskId, `CEO APPROVED: ${reason}`, "--author", "CEO Web", "--max-len", "2000"]);
+      } else {
+        exec(decision.board, ["unblock", decision.taskId, "--reason", `CEO APPROVED: ${reason}`]);
+      }
     } else if (decision.action === "reject") {
       if (before.status === "blocked") exec(decision.board, ["comment", decision.taskId, `CEO REJECTED: ${reason}`, "--author", "CEO Web", "--max-len", "2000"]);
       else if (["ready", "running"].includes(before.status)) exec(decision.board, ["block", decision.taskId, `CEO REJECTED: ${reason}`, "--kind", "needs_input"]);
