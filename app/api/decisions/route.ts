@@ -36,14 +36,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Podaj powód (minimum 5 znaków)" }, { status: 400 });
     }
 
-    const snapshot = getSnapshot(board);
-    if (snapshot.selectedBoard !== board) return NextResponse.json({ error: "Nieznany board" }, { status: 404 });
-    const task = snapshot.tasks.find((item) => item.id === taskId);
+    let snapshot = getSnapshot(board);
+    let task = snapshot.selectedBoard === board ? snapshot.tasks.find((item) => item.id === taskId) : null;
+    let actualBoard = board;
+
+    if (!task) {
+      // Fallback: search for task across all boards to handle cross-board decisions securely
+      const allBoards = snapshot.boards;
+      for (const b of allBoards) {
+        if (b.slug === board) continue;
+        const bs = getSnapshot(b.slug);
+        const found = bs.tasks.find((item) => item.id === taskId);
+        if (found) {
+          task = found;
+          actualBoard = b.slug;
+          break;
+        }
+      }
+    }
+
     if (!task) return NextResponse.json({ error: "Task nie istnieje" }, { status: 404 });
     if (!decisionAllowed(action, task.status)) return NextResponse.json({ error: `Akcja ${action} nie jest dozwolona dla statusu ${task.status}` }, { status: 409 });
-    
+
     const rule = decisionTransitions[action];
-    const result = enqueueDecision({ board, taskId, action, fromStatus: task.status, toStatus: rule.expected, comment });
+    const result = enqueueDecision({ board: actualBoard, taskId, action, fromStatus: task.status, toStatus: rule.expected, comment });
+
     audit("ceo", `task.${action}`, `${board}/${taskId}`, `${task.status}->${rule.expected || "auto"}`, ip(request));
     return NextResponse.json(result, { status: 202, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
