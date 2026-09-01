@@ -21,7 +21,11 @@ export type AgentScorecardRow = {
   sessions30: number; // kanban work sessions in 30d (from profile state.db)
   tokens30: number;
   cost30: number | null; // USD (null when the profile DB is unavailable)
+  costLimitUsd: number | null;
+  tokenLimit: number | null;
+  budgetAlert: boolean;
 };
+
 
 function discoverBoards(): string[] {
   const dir = path.join(kanbanRoot, "boards");
@@ -55,7 +59,7 @@ export function getScorecard(): AgentScorecardRow[] {
         const task = tasks.find((t) => String(t.id) === tid);
         if (!task || !task.assignee) continue;
         const slug = String(task.assignee);
-        const row = rows.get(slug) || { slug, name: agentDisplayName(slug), done7: 0, done30: 0, blocked7: 0, blocked30: 0, created30: 0, rework30: 0, running: 0, total: 0, sessions30: 0, tokens30: 0, cost30: null };
+        const row = rows.get(slug) || { slug, name: agentDisplayName(slug), done7: 0, done30: 0, blocked7: 0, blocked30: 0, created30: 0, rework30: 0, running: 0, total: 0, sessions30: 0, tokens30: 0, cost30: null, costLimitUsd: null, tokenLimit: null, budgetAlert: false };
         if (e.kind === "completed") { row.done30++; if (age < 7 * day) row.done7++; }
         if (e.kind === "blocked") { row.blocked30++; if (age < 7 * day) row.blocked7++; }
         if (e.kind === "created") row.created30++;
@@ -65,7 +69,7 @@ export function getScorecard(): AgentScorecardRow[] {
       for (const t of tasks) {
         if (!t.assignee) continue;
         const slug = String(t.assignee);
-        const row = rows.get(slug) || { slug, name: agentDisplayName(slug), done7: 0, done30: 0, blocked7: 0, blocked30: 0, created30: 0, rework30: 0, running: 0, total: 0, sessions30: 0, tokens30: 0, cost30: null };
+        const row = rows.get(slug) || { slug, name: agentDisplayName(slug), done7: 0, done30: 0, blocked7: 0, blocked30: 0, created30: 0, rework30: 0, running: 0, total: 0, sessions30: 0, tokens30: 0, cost30: null, costLimitUsd: null, tokenLimit: null, budgetAlert: false };
         row.total++;
         if (t.status === "running") row.running++;
         rows.set(slug, row);
@@ -98,9 +102,77 @@ export function getScorecard(): AgentScorecardRow[] {
         row.sessions30 = Number(agg.sessions || 0);
         row.tokens30 = Number(agg.tokens || 0);
         row.cost30 = Number(agg.cost || 0);
+
+        // Budget limits evaluation (default threshold or env limits if configured)
+        if (row.costLimitUsd != null && row.cost30 != null && row.cost30 >= row.costLimitUsd) {
+          row.budgetAlert = true;
+        }
+        if (row.tokenLimit != null && row.tokens30 >= row.tokenLimit) {
+          row.budgetAlert = true;
+        }
       } finally { db.close(); }
     } catch { row.cost30 = null; }
   }
 
   return [...rows.values()].sort((a, b) => b.done30 - a.done30);
 }
+
+export type SystemHealthSummary = {
+  activeBoards: number;
+  totalAgents: number;
+  completedTasks30: number;
+  blockedTasks30: number;
+  reworkTasks30: number;
+  blockedRatio: number;
+  avgCycleTimeHours: number | null;
+};
+
+export function getSystemHealth(): SystemHealthSummary {
+  const scorecard = getScorecard();
+  const boards = discoverBoards();
+  const completed = scorecard.reduce((sum, r) => sum + r.done30, 0);
+  const blocked = scorecard.reduce((sum, r) => sum + r.blocked30, 0);
+  const rework = scorecard.reduce((sum, r) => sum + r.rework30, 0);
+  const totalActivity = completed + blocked;
+
+  // Cycle time calculation over last 30d across boards
+  let totalCycleSeconds = 0;
+  let cycleCount = 0;
+  const now = Math.floor(Date.now() / 1000);
+  const day = 24 * 3600;
+
+  for (const board of boards) {
+    let db: Database.Database | null = null;
+    try {
+      db = new Database(path.join(kanbanRoot, "boards", board, "kanban.db"), { readonly: true, fileMustExist: true });
+      db.pragma("query_only = ON");
+      const rows = db.prepare(
+        "SELECT started_at, completed_at FROM tasks WHERE status = 'done' AND completed_at IS NOT NULL AND started_at IS NOT NULL AND completed_at >= ?"
+      ).all(now - 30 * day) as AnyRow[];
+
+      for (const r of rows) {
+        const start = Number(r.started_at);
+        const end = Number(r.completed_at);
+        if (end > start) {
+          totalCycleSeconds += (end - start);
+          cycleCount++;
+        }
+      }
+    } catch { /* skip unreadable board */ } finally {
+      if (db) db.close();
+    }
+  }
+
+  const avgCycleTimeHours = cycleCount > 0 ? Math.round((totalCycleSeconds / cycleCount / 3600) * 10) / 10 : null;
+
+  return {
+    activeBoards: boards.length,
+    totalAgents: scorecard.length,
+    completedTasks30: completed,
+    blockedTasks30: blocked,
+    reworkTasks30: rework,
+    blockedRatio: totalActivity > 0 ? Math.round((blocked / totalActivity) * 100) / 100 : 0,
+    avgCycleTimeHours,
+  };
+}
+

@@ -106,3 +106,11 @@ export const ProjectCreateSchema = z.object({
     .pipe(z.string().max(250, "Ścieżka max 250 znaków")),
 });
 
+export const AgentBudgetConfigSchema = z.object({
+  agentSlug: z.string().min(1, "Brak identyfikatora agenta"),
+  monthlyCostLimitUsd: z.number().nonnegative("Limit kosztów nie może być ujemny"),
+  monthlyTokenLimit: z.number().int().nonnegative("Limit tokenów nie może być ujemny"),
+  pauseOnExceed: z.boolean().default(true),
+});
+
+

@@ -57,7 +57,7 @@ describe("GET /api/tasks", () => {
     const res = await GET(new NextRequest("http://localhost/api/tasks?board=myboard&taskId=T-1"));
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    expect(res.json()).resolves.toMatchObject({ moves: [{ id: "m1" }] });
+    await expect(res.json()).resolves.toMatchObject({ moves: [{ id: "m1" }] });
   });
 
   it("returns 500 when listMoves throws", async () => {
