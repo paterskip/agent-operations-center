@@ -34,7 +34,7 @@ describe("Skills Registry", () => {
     const pmSkills = getSkillsForAgent("pm");
     expect(pmSkills.some((s) => s.slug === "pm-task-decomposition")).toBe(true);
 
-    const secSkills = getSkillsForAgent("sec");
+    const secSkills = getSkillsForAgent("security");
     expect(secSkills.some((s) => s.slug === "sec-ops-vulnerability-scan")).toBe(true);
   });
 

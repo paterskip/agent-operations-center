@@ -114,7 +114,6 @@ const fallbackNames: Record<string, string> = {
   tester: "QA Automation Engineer",
   reviewer: "Code Reviewer & Gate",
   security: "Security & AppSec Engineer",
-  sec: "Security & AppSec Engineer",
   default: "Operations Specialist",
 };
 
@@ -128,7 +127,6 @@ const fallbackDescriptions: Record<string, string> = {
   tester: "Automated regression, integration & quality assurance",
   reviewer: "Security inspection, code review & quality gates",
   security: "AppSec audits, vulnerability assessment, CVE tracking & threat modeling",
-  sec: "AppSec audits, vulnerability assessment, CVE tracking & threat modeling",
   default: "General task execution & operations",
 };
 
