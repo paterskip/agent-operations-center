@@ -21,7 +21,7 @@ export const ACTIVE_UNBLOCKED_STATUSES: readonly string[] = [
 
 export const DECISION_POLICIES: Record<DecisionAction, DecisionPolicy> = {
   approve: {
-    allowedFrom: ["blocked", "scheduled"],
+    allowedFrom: ["blocked", "scheduled", "triage", "todo"],
     expected: null,
     description: "Odblokowanie zadania i przekazanie do dalszej pracy",
     isPostConditionSatisfied: (status: string) => status !== "blocked" && status !== "archived",
@@ -29,7 +29,7 @@ export const DECISION_POLICIES: Record<DecisionAction, DecisionPolicy> = {
       currentStatus !== "blocked" && currentStatus !== "archived" && currentStatus !== "scheduled",
   },
   resume: {
-    allowedFrom: ["blocked", "scheduled"],
+    allowedFrom: ["blocked", "scheduled", "triage"],
     expected: null,
     description: "Wznowienie zablokowanego lub zaplanowanego zadania",
     isPostConditionSatisfied: (status: string) => status !== "blocked" && status !== "archived",
@@ -37,14 +37,14 @@ export const DECISION_POLICIES: Record<DecisionAction, DecisionPolicy> = {
       currentStatus !== "blocked" && currentStatus !== "archived" && currentStatus !== "scheduled",
   },
   reject: {
-    allowedFrom: ["blocked", "ready", "running"],
+    allowedFrom: ["blocked", "ready", "running", "triage", "todo"],
     expected: "blocked",
     description: "Odrzucenie zadania lub pozostawienie w stanie zablokowanym z komentarzem",
     isPostConditionSatisfied: (status: string) => status === "blocked" || status === "triage",
     isAlreadyResolved: (currentStatus: string) => currentStatus === "blocked",
   },
   hold: {
-    allowedFrom: ["todo", "ready", "running"],
+    allowedFrom: ["todo", "ready", "running", "triage"],
     expected: "blocked",
     description: "Wstrzymanie i zablokowanie zadania",
     isPostConditionSatisfied: (status: string) => status === "blocked",
@@ -61,6 +61,7 @@ export const decisionTransitions: Record<DecisionAction, { from: readonly string
   resume: { from: DECISION_POLICIES.resume.allowedFrom, expected: null },
   hold: { from: DECISION_POLICIES.hold.allowedFrom, expected: "blocked" },
 };
+
 
 export function decisionAllowed(action: string, status: string): action is DecisionAction {
   if (action in DECISION_POLICIES) {

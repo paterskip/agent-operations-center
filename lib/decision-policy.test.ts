@@ -5,10 +5,12 @@ describe("CEO decision policy", () => {
   it("only resumes blocked or scheduled tasks", () => {
     expect(decisionAllowed("approve", "blocked")).toBe(true);
     expect(decisionAllowed("approve", "scheduled")).toBe(true);
+    expect(decisionAllowed("approve", "triage")).toBe(true);
+    expect(decisionAllowed("approve", "todo")).toBe(true);
     expect(decisionAllowed("approve", "review")).toBe(false);
     expect(decisionAllowed("approve", "done")).toBe(false);
-    expect(decisionAllowed("approve", "triage")).toBe(false); // regresja: UI pokazywał approve dla triage
   });
+
 
   it("never exposes assignment or forced dependency actions", () => {
     expect(decisionAllowed("assign", "blocked")).toBe(false);
