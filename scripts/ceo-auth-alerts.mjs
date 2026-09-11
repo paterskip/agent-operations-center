@@ -44,7 +44,8 @@ function main() {
   }
   if (onefa.length) {
     const ips = [...new Set(onefa.map((r) => r.remote_ip))].filter(Boolean).join(", ");
-    lines.push(`⚠️ Błędne hasło (${onefa.length}×) dla użytkownika "${[...new Set(onefa.map((r) => r.username))].join(", ")}"`);
+    const who = [...new Set(onefa.map((r) => (r.username ?? "").trim() || "(nieznany użytkownik)"))].join(", ");
+    lines.push(`⚠️ Błędne hasło (${onefa.length}×) dla użytkownika "${who}"`);
     if (ips) lines.push(`IP: ${ips}`);
     lines.push("");
   }
