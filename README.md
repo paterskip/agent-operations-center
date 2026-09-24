@@ -49,14 +49,14 @@ agents.example.com {
 }
 ```
 
-Authelia must be configured to emit `remote-user` and `remote-groups` headers (the app reads exactly these two). It must also **strip inbound `remote-user` / `remote-groups` headers from clients** — otherwise the header trust chain is broken. Basic auth or Authelia without 2FA is a minimum guard; prefer enforcing 2FA in the identity provider for public deployments.
+Authelia must be configured to emit `remote-user` and `remote-groups` headers (the app reads exactly these two). It must also **strip inbound `remote-user` / `remote-groups` headers from clients** — otherwise the header trust chain is broken. Set `AOC_TRUSTED_PROXY=true` only after the reverse proxy boundary is verified. Basic auth or Authelia without 2FA is a minimum guard; prefer enforcing 2FA in the identity provider for public deployments.
 
 ### Password management
 
-The panel deliberately does **not** manage passwords — that stays in Authelia's hands:
+The panel exposes an explicit password-change route for the configured CEO account; all other password administration stays in Authelia's hands:
 
 - **Self-service reset**: Authelia's built-in reset-password flow (requires SMTP in `deploy/authelia/configuration.yml`).
-- **Admin (no SMTP needed)**: `docker exec agent-operations-center-authelia-1 authelia admin user password <username>` — sets a new hash atomically via Authelia's own CLI (no YAML editing by the app).
+- **Admin (no SMTP needed)**: `docker exec agent-operations-center-authelia-1 authelia admin user password <username>` — sets a new hash atomically via Authelia's own CLI.
 - **Brute-force protection**: enforced by Authelia itself (per-user/IP bans), not by the app.
 
 ### Kanban transitions (DnD)
@@ -71,8 +71,8 @@ The middleware adds `'unsafe-eval'` to `script-src` only when `NODE_ENV !== "pro
 
 - The application opens SQLite with `readonly` and `query_only` enabled.
 - Docker mounts only the Kanban root read-only. Profile homes and their `.env` files are not mounted; the public role roster is supplied through `AOC_AGENTS`.
-- API responses deliberately omit worker PIDs, session IDs, claim locks, workspace paths, attachment paths, credentials, and environment variables.
-- No write endpoint, shell command, merge, or deployment action exists in MVP.
+- Write operations are limited to the explicit CEO task, idea, decision and password routes. No arbitrary shell or deployment action exists.
+- The broker executes only validated Hermes CLI transitions and authenticated reopen requests.
 - Basic auth is a minimum guard. For public production use, prefer an identity-aware reverse proxy such as Cloudflare Access or Authelia.
 
 ## Architecture

@@ -17,7 +17,10 @@ function denied(body: string, status: number, csp: string, headers: Record<strin
 
 function rateLimited(request: NextRequest): boolean {
   const now = Date.now();
-  const key = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
+  const forwarded = process.env.AOC_TRUSTED_PROXY === "true"
+    ? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip")
+    : null;
+  const key = forwarded || "local";
   const entry = rateMap.get(key);
   if (!entry || now > entry.reset) {
     if (rateMap.size >= MAX_RATE_ENTRIES) {
@@ -55,6 +58,10 @@ export function proxy(request: NextRequest) {
     response.headers.set("Content-Security-Policy", csp);
     return response;
   };
+  if (process.env.NODE_ENV !== "production" && process.env.AOC_DISABLE_AUTH === "true") return pass();
+  if (process.env.NODE_ENV === "production" && process.env.AOC_TRUSTED_PROXY !== "true") {
+    return denied("Trusted reverse proxy is not configured", 503, csp);
+  }
   const username = request.headers.get("remote-user");
   const groups = (request.headers.get("remote-groups") || "").split(",").map((value) => value.trim());
   const isCeo = username === process.env.AOC_USERNAME && groups.includes("ceo");

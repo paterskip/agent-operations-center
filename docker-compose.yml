@@ -9,6 +9,7 @@ services:
       AOC_USERNAME: ${AOC_USERNAME:-ceo}
       AOC_PUBLIC_URL: https://agents.paterski.com
       AOC_STATE_DB: /data/state/aoc.db
+      AOC_TRUSTED_PROXY: "true"
     volumes:
       - /root/.hermes/kanban:/data/kanban:ro
       - /root/.hermes/kanban.db:/data/kanban.db:ro
@@ -16,10 +17,13 @@ services:
       - ./deploy/authelia/users_database.yml:/data/authelia/users_database.yml:rw
     ports:
       - "127.0.0.1:3010:3000"
+    read_only: true
     tmpfs:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     healthcheck:
       test: ["CMD", "node", "-e", "const http=require('http');http.get('http://127.0.0.1:3000/api/snapshot',(r)=>{process.exit(r.statusCode===200||r.statusCode===401?0:1)});"]
       interval: 30s
@@ -40,7 +44,10 @@ services:
       - /var/lib/authelia/secrets:/secrets:ro
     ports:
       - "127.0.0.1:9091:9091"
+    read_only: true
     tmpfs:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL

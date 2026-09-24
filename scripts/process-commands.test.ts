@@ -11,6 +11,7 @@ const testsDir = path.join(os.tmpdir(), `aoc-broker-test-${process.pid}-${Date.n
 let dbPath: string;
 let kanbanRoot: string;
 let db: Database.Database;
+const hermesToken = "tok12345678901234567890123456789012";
 
 beforeEach(() => {
   dbPath = path.join(testsDir, `state-${Date.now()}.db`);
@@ -403,24 +404,36 @@ describe("httpReopenTask — authenticated HTTP reopen transport", () => {
     expect(called).toBe(false);
   });
 
+  it("rejects a short token without calling the Hermes API", async () => {
+    const fetchImpl = async () => { throw new Error("must not be called"); };
+    await expect(httpReopenTask("b1", "T-1", { url: "http://127.0.0.1:9119", token: "short" }, fetchImpl))
+      .rejects.toThrow("32-256");
+  });
+
+  it("rejects a non-loopback Hermes API host", async () => {
+    const fetchImpl = async () => { throw new Error("must not be called"); };
+    await expect(httpReopenTask("b1", "T-1", { url: "https://example.com", token: hermesToken }, fetchImpl))
+      .rejects.toThrow("loopback");
+  });
+
   it("builds PATCH /api/plugins/kanban/tasks/{id}?board=<b> with the bearer token", async () => {
     let seenUrl = "";
     const fetchImpl = async (url: string | Request, init?: object) => {
       seenUrl = String(url);
       const meta = init as { method?: string; headers?: Record<string, string>; body?: string };
       expect(meta.method).toBe("PATCH");
-      expect(meta.headers?.["Authorization"]).toBe("Bearer tok123");
+      expect(meta.headers?.["Authorization"]).toBe(`Bearer ${hermesToken}`);
       expect(JSON.parse(meta.body ?? "")).toEqual({ status: "todo" });
       return { ok: true, json: async () => ({ task: { id: "T-1", status: "todo" } }) } as unknown as Response;
     };
-    const status = await httpReopenTask("portfolio", "task_abc", { url: "http://127.0.0.1:9119", token: "tok123" }, fetchImpl);
+    const status = await httpReopenTask("portfolio", "task_abc", { url: "http://127.0.0.1:9119", token: hermesToken }, fetchImpl);
     expect(status).toBe("todo");
     expect(seenUrl).toBe("http://127.0.0.1:9119/api/plugins/kanban/tasks/task_abc?board=portfolio");
   });
 
   it("rejects on non-2xx — surfaces API detail", async () => {
     const fetchImpl = async () => ({ ok: false, status: 409, text: async () => "status transition to 'todo' not valid" } as unknown as Response);
-    await expect(httpReopenTask("b1", "T-1", { url: "http://x", token: "tok" }, fetchImpl))
+    await expect(httpReopenTask("b1", "T-1", { url: "http://127.0.0.1:9119", token: hermesToken }, fetchImpl))
       .rejects.toThrow(/409.*not valid/s);
   });
 

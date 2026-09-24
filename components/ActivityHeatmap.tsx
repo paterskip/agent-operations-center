@@ -1,6 +1,7 @@
 "use client";
 
 import type { AgentActivityCell } from "@/lib/trends";
+import { useState } from "react";
 
 const DAYS = 84; // 12 tygodni
 
@@ -20,10 +21,10 @@ export function ActivityHeatmap({ data, agents }: { data: AgentActivityCell[]; a
     m.set(c.date, c.count);
   }
 
+  const [today] = useState(() => Date.now());
   const days: string[] = [];
   for (let i = DAYS - 1; i >= 0; i--) {
-    // eslint-disable-next-line react-hooks/purity -- okno 84 dni jest stabilne w ciągu doby; liczone raz przy montażu
-    days.push(new Date(Date.now() - i * 86400_000).toISOString().slice(0, 10));
+    days.push(new Date(today - i * 86400_000).toISOString().slice(0, 10));
   }
 
   const rows = agents.filter((a) => byAgent.has(a.slug));
