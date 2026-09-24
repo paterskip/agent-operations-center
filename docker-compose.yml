@@ -33,6 +33,11 @@ services:
 
   authelia:
     image: authelia/authelia:4.39.28
+    entrypoint:
+      - /app/authelia
+    command:
+      - --config
+      - /config/configuration.yml
     restart: unless-stopped
     environment:
       AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: /secrets/jwt
@@ -51,3 +56,5 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - DAC_OVERRIDE
