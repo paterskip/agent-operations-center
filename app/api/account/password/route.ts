@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
+import { readFile } from "node:fs/promises";
 import crypto from "node:crypto";
 import argon2 from "argon2";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const USERS_DB = process.env.AOC_USERS_DB || "/data/authelia/users_database.yml";
+const USERS_DB = "/data/authelia/users_database.yml";
 const PARAMS = { type: argon2.argon2id as 2, timeCost: 5, memoryCost: 131072, parallelism: 4, hashLength: 32 };
 
 // PHC w dokładnym formacie Authelii: $argon2id$v=19$m=...,t=...,p=...$salt$hash (bez paddingu =)
@@ -18,29 +19,27 @@ function phc(salt: Buffer, hash: Buffer): string {
 function findPasswordLine(text: string, username: string): { line: string; hash: string; start: number; end: number } | null {
   const lines = text.split("\n");
   const start = lines.findIndex((line) => line === `  ${username}:`);
-  if (start < 0) return null;
-  const endOffset = lines.slice(start + 1).findIndex((line) => /^ {2}\S[^:]*:\s*$/.test(line));
-  const end = endOffset < 0 ? lines.length : start + 1 + endOffset;
-  const passwordIndex = lines.slice(start + 1, end).findIndex((line) => /^ {4}password:\s*'([^']+)'\s*$/.test(line));
-  if (passwordIndex < 0) return null;
-  const lineIndex = start + 1 + passwordIndex;
-  const match = lines[lineIndex].match(/^ {4}password:\s*'([^']+)'\s*$/);
-  if (!match) return null;
-  return { line: lines[lineIndex], hash: match[1], start: lineIndex, end };
+  if (start >= 0) {
+    const endOffset = lines.slice(start + 1).findIndex((line) => /^ {2}\S[^:]*:\s*$/.test(line));
+    const end = endOffset < 0 ? lines.length : start + 1 + endOffset;
+    const passwordIndex = lines.slice(start + 1, end).findIndex((line) => /^ {4}password:\s*'([^']+)'\s*$/.test(line));
+    if (passwordIndex >= 0) {
+      const lineIndex = start + 1 + passwordIndex;
+      const match = lines[lineIndex].match(/^ {4}password:\s*'([^']+)'\s*$/);
+      if (match) return { line: lines[lineIndex], hash: match[1], start: lineIndex, end };
+    }
+  }
+  const legacyIndex = lines.findIndex((line) => /^\s*password:\s*['"][^'"]+['"]\s*$/.test(line));
+  if (legacyIndex < 0) return null;
+  const legacyMatch = lines[legacyIndex].match(/^\s*password:\s*['"]([^'"]+)['"]\s*$/);
+  return legacyMatch ? { line: lines[legacyIndex], hash: legacyMatch[1], start: legacyIndex, end: legacyIndex + 1 } : null;
 }
 
 function atomicWrite(path: string, content: string) {
-  const mode = fs.statSync(path).mode & 0o777;
-  const temp = `${path}.${process.pid}.tmp`;
-  const fd = fs.openSync(temp, "w", mode);
-  try {
-    fs.writeFileSync(fd, content, "utf8");
-    fs.fsyncSync(fd);
-  } finally {
-    fs.closeSync(fd);
-  }
+  const temp = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(temp, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
   fs.renameSync(temp, path);
-  fs.chmodSync(path, mode);
+  fs.chmodSync(path, 0o600);
 }
 
 export async function POST(request: Request) {
@@ -58,7 +57,7 @@ export async function POST(request: Request) {
   }
 
   let text: string;
-  try { text = fs.readFileSync(USERS_DB, "utf8"); }
+  try { text = await readFile(USERS_DB, "utf8"); }
   catch { return NextResponse.json({ error: "Brak dostępu do magazynu haseł." }, { status: 500 }); }
 
   const passwordLine = findPasswordLine(text, username);

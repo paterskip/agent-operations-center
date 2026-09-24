@@ -456,7 +456,9 @@ describe("backupKanban — rotation + stamp gating", () => {
     // Create fake board DB
     const boardSlug = "proj1";
     fs.mkdirSync(path.join(kanbanRoot, "boards", boardSlug), { recursive: true });
-    fs.writeFileSync(path.join(kanbanRoot, "boards", boardSlug, "kanban.db"), "fake-db-content");
+    const boardDb = new Database(path.join(kanbanRoot, "boards", boardSlug, "kanban.db"));
+    boardDb.exec("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)");
+    boardDb.close();
 
     const backupsDir = path.join(kanbanRoot, "backups");
     const stampFile = path.join(path.dirname(dbPath), ".aoc-last-backup");

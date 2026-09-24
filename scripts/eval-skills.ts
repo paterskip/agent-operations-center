@@ -1,4 +1,4 @@
-import { discoverSkills, validateSkillTier1, validateSkillTier2, getSkillCatalogSummary } from "../lib/skills-registry";
+import { validateSkillTier1, validateSkillTier2, getSkillCatalogSummary } from "../lib/skills-registry";
 
 function runEvaluation() {
   console.log("\n========================================================");

@@ -162,7 +162,6 @@ export default function Dashboard() {
   const agents = liveAgents ?? data?.agents ?? [];
   const activity = useMemo(() => liveActivity ?? data?.activity ?? [], [liveActivity, data?.activity]);
   const tasksRef = useRef<TaskCard[]>(tasks);
-  // eslint-disable-next-line react-hooks/refs -- latest-ref: read in event handlers (moveTask/executeDecision), render-time assignment is intentional
   tasksRef.current = tasks;
   /* Tick for render-time clocks (SLA badges) — pure render, refreshed each minute */
   const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
@@ -322,10 +321,8 @@ export default function Dashboard() {
   /* Live updates: SSE deltas applied in place — NO full snapshot reloads.
      Full load() only on: mount, board switch, reconnect (dropped flag), explicit refresh. */
   const dataRef = useRef(data);
-  // eslint-disable-next-line react-hooks/refs -- latest-ref: read in SSE apply closures, render-time assignment is intentional
   dataRef.current = data;
   const boardRef = useRef(board);
-  // eslint-disable-next-line react-hooks/refs -- latest-ref for SSE resync on reconnect
   boardRef.current = board;
   const droppedRef = useRef(false);
   useEffect(() => {
@@ -379,7 +376,7 @@ export default function Dashboard() {
     return () => {
       es.close();
     };
-  }, [view, load]);
+  }, [view, load, triggerScorecardRefresh]);
 
   const toggleSound = useCallback(() => {
     setSoundEnabled((prev) => {

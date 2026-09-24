@@ -103,7 +103,7 @@ export function discoverSkills(skillsDirectory?: string): SkillRecord[] {
     }
 
     const skillSlug = entry.name;
-    const skillPath = path.join(dir, skillSlug);
+    const skillPath = path.join(/*turbopackIgnore: true*/ dir, skillSlug);
     const skillMdFile = path.join(skillPath, "SKILL.md");
 
     if (!fs.existsSync(/*turbopackIgnore: true*/ skillMdFile)) {
