@@ -128,7 +128,8 @@ export function ensureTables(db) {
       hermes_task_id TEXT, last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS commands (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, idea_id TEXT NOT NULL,
+      id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, idea_id TEXT,
+      payload TEXT,
       status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
       FOREIGN KEY(idea_id) REFERENCES ideas(id)
@@ -157,7 +158,7 @@ export function ensureTables(db) {
 }
 
 export function runOne(db, exec = defaultExec) {
-  const command = db.prepare("SELECT id,kind,idea_id ideaId FROM commands WHERE status='pending' AND attempts < 3 ORDER BY id LIMIT 1").get();
+  const command = db.prepare("SELECT id,kind,idea_id ideaId,payload FROM commands WHERE status='pending' AND attempts < 3 ORDER BY id LIMIT 1").get();
   if (!command) return false;
   const ts = now();
   const claimed = db.prepare("UPDATE commands SET status='running', attempts=attempts+1, updated_at=? WHERE id=? AND status='pending' AND attempts < 3").run(ts, command.id);
@@ -165,7 +166,9 @@ export function runOne(db, exec = defaultExec) {
 
   if (command.kind === "board.create") {
     try {
-      const payload = JSON.parse(command.ideaId);
+      // Payload lives in its own column: `idea_id` carries a foreign key to
+      // `ideas`, and a board creation has no idea row behind it.
+      const payload = JSON.parse(command.payload);
       const args = ["boards", "create", payload.slug];
       if (payload.name) args.push("--name", payload.name);
       if (payload.description) args.push("--description", payload.description);
@@ -188,7 +191,7 @@ export function runOne(db, exec = defaultExec) {
       db.transaction(() => {
         db.prepare("UPDATE commands SET status=CASE WHEN attempts>=3 THEN 'failed' ELSE 'pending' END, updated_at=? WHERE id=?").run(ts, command.id);
         db.prepare("INSERT INTO audit_log(actor,action,target,detail,ip,created_at) VALUES('broker','board.create.failed',?,?,NULL,?)")
-          .run(String(command.ideaId), message, ts);
+          .run(String(command.payload || command.ideaId), message, ts);
       })();
     }
     return true;

@@ -94,7 +94,8 @@ function openState() {
         hermes_task_id TEXT, last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS commands (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, idea_id TEXT NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, idea_id TEXT,
+        payload TEXT,
         status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
         FOREIGN KEY(idea_id) REFERENCES ideas(id)
@@ -120,6 +121,46 @@ function openState() {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_task_moves_pending
         ON task_moves(board, task_id) WHERE status IN ('queued','running');
     `);
+    // Idempotentna migracja: `commands.payload` oraz nullable `commands.idea_id`
+    // zostały dodane obok starego schematu, w którym payload board.create leżał
+    // w kolumnie idea_id objętej kluczem obcym do `ideas` (wstawienie bez
+    // odpowiadającego pomysłu kończyło się FOREIGN KEY constraint failed).
+    // CREATE TABLE IF NOT EXISTS nie zmienia istniejącej tabeli, więc kolumny
+    // dokładamy osobno i przenosimy JSON-y ze starej lokalizacji.
+    const commandColumns = new Set(
+      (db.prepare("PRAGMA table_info(commands)").all() as { name: string }[]).map((c) => c.name)
+    );
+    if (!commandColumns.has("payload")) {
+      db.exec("ALTER TABLE commands ADD COLUMN payload TEXT");
+    }
+    if (commandColumns.has("idea_id")) {
+      // SQLite nie pozwala zmienić NOT NULL bez przebudowy tabeli, więc
+      // dopuszczamy wartości NULL przez przebudowę tylko wtedy, gdy to konieczne.
+      const ideaIsRequired = (db.prepare("PRAGMA table_info(commands)").all() as { name: string; notnull: number }[])
+        .some((c) => c.name === "idea_id" && c.notnull === 1);
+      if (ideaIsRequired) {
+        const migrate = db.transaction(() => {
+          db.exec(`
+            CREATE TABLE commands_migrated (
+              id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, idea_id TEXT,
+              payload TEXT,
+              status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+              FOREIGN KEY(idea_id) REFERENCES ideas(id)
+            );
+            INSERT INTO commands_migrated(id, kind, idea_id, payload, status, attempts, created_at, updated_at)
+              SELECT id, kind,
+                     CASE WHEN idea_id LIKE 'idea_%' THEN idea_id ELSE NULL END,
+                     CASE WHEN idea_id LIKE 'idea_%' THEN NULL ELSE idea_id END,
+                     status, attempts, created_at, updated_at
+              FROM commands;
+            DROP TABLE commands;
+            ALTER TABLE commands_migrated RENAME TO commands;
+          `);
+        });
+        migrate();
+      }
+    }
   }
   return db;
 }
@@ -262,7 +303,7 @@ export function enqueueProjectCreate(input: {
       defaultWorkdir: input.defaultWorkdir || "",
     });
     db.prepare(`
-      INSERT INTO commands(kind, idea_id, status, attempts, created_at, updated_at)
+      INSERT INTO commands(kind, payload, status, attempts, created_at, updated_at)
       VALUES('board.create', ?, 'pending', 0, ?, ?)
     `).run(payload, now, now);
     triggerBroker();
