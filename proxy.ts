@@ -4,6 +4,7 @@ const rateMap = new Map<string, { count: number; reset: number }>();
 const RATE_LIMIT = 60;
 const RATE_WINDOW_MS = 60_000;
 const MAX_RATE_ENTRIES = 5_000;
+let anonymousKeys = 0;
 
 function contentSecurityPolicy(nonce: string) {
   // React dev mode requires eval (HMR, devtools callstack reconstruction); production never gets it.
@@ -17,7 +18,14 @@ function denied(body: string, status: number, csp: string, headers: Record<strin
 
 function rateLimited(request: NextRequest): boolean {
   const now = Date.now();
-  const key = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
+  const forwarded = process.env.AOC_TRUSTED_PROXY === "true"
+    ? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip")
+    : null;
+  // An unidentified client must NOT share a bucket with anyone else: a single
+  // noisy client would 429 every other user once the shared window filled up.
+  // Fall back to a per-request key so the limit stays per-client, and let the
+  // 2-minute sweeper reclaim the short-lived entries.
+  const key = forwarded || `anon:${++anonymousKeys}`;
   const entry = rateMap.get(key);
   if (!entry || now > entry.reset) {
     if (rateMap.size >= MAX_RATE_ENTRIES) {
@@ -55,6 +63,10 @@ export function proxy(request: NextRequest) {
     response.headers.set("Content-Security-Policy", csp);
     return response;
   };
+  if (process.env.NODE_ENV !== "production" && process.env.AOC_DISABLE_AUTH === "true") return pass();
+  if (process.env.NODE_ENV === "production" && process.env.AOC_TRUSTED_PROXY !== "true") {
+    return denied("Trusted reverse proxy is not configured", 503, csp);
+  }
   const username = request.headers.get("remote-user");
   const groups = (request.headers.get("remote-groups") || "").split(",").map((value) => value.trim());
   const isCeo = username === process.env.AOC_USERNAME && groups.includes("ceo");

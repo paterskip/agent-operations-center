@@ -10,7 +10,7 @@ vi.mock("@/lib/hermes", () => ({
 }));
 
 vi.mock("@/lib/state", () => ({
-  enqueueProjectCreate: vi.fn(({ slug, name }) => ({ id: "proj_123", slug, status: "pending" })),
+  enqueueProjectCreate: vi.fn(({ slug }) => ({ id: "proj_123", slug, status: "pending" })),
   audit: vi.fn(),
 }));
 

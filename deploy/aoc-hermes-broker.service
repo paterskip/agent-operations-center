@@ -6,11 +6,21 @@ After=docker.service
 Type=oneshot
 WorkingDirectory=/root/.openclaw/workspace/agent-operations-center
 Environment=AOC_STATE_DB=/var/lib/agent-operations-center/aoc.db
+EnvironmentFile=/etc/agent-operations-center/hermes.env
 ExecStart=/usr/bin/node /root/.openclaw/workspace/agent-operations-center/scripts/process-commands.mjs
 User=root
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/etc/agent-operations-center/hermes.env
 ReadWritePaths=/var/lib/agent-operations-center /root/.hermes
+UMask=0077
 

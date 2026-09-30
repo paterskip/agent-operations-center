@@ -5,8 +5,8 @@ import { proxy } from "../proxy";
 const env = process.env as Record<string, string | undefined>;
 
 function withEnv(patch: Record<string, string | undefined>) {
-  const old = { NODE_ENV: env.NODE_ENV, AOC_DISABLE_AUTH: env.AOC_DISABLE_AUTH, AOC_USERNAME: env.AOC_USERNAME };
-  Object.assign(env, patch);
+  const old = { NODE_ENV: env.NODE_ENV, AOC_DISABLE_AUTH: env.AOC_DISABLE_AUTH, AOC_USERNAME: env.AOC_USERNAME, AOC_TRUSTED_PROXY: env.AOC_TRUSTED_PROXY };
+  Object.assign(env, { AOC_TRUSTED_PROXY: "true" }, patch);
   return () => Object.assign(env, old);
 }
 

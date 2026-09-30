@@ -15,6 +15,10 @@ const NAME_FALLBACK = { default: "Default Agent" };
 const HOUR = 3600;
 const DAY = 24 * HOUR;
 const WEEKLY = process.argv.includes("--weekly");
+const MAX_AGENTS = 8; // maks. wierszy agentow; reszta jako licznik
+const MAX_DECISIONS = 5; // maks. kart decyzji w wiadomosci
+const MAX_TITLE = 60; // maks. dlugosc tytulu karty
+const MAX_TOTAL = 1500; // twardy cap calej wiadomosci (ochrona przed spamem TG)
 
 function agentName(slug) {
   try {
@@ -134,9 +138,10 @@ function buildText({ agents, decisions, blocked, running, reworked }) {
   const sorted = [...agents.values()].sort((a, b) => (b.done7 + b.done1) - (a.done7 + a.done1));
   if (WEEKLY) {
     lines.push("👥 Agenci — 7 dni:");
-    for (const a of sorted) {
+    for (const a of sorted.slice(0, MAX_AGENTS)) {
       lines.push(`• ${agentName(a.slug)} — ${a.done7} done · ${a.blocked7} blocked · ${a.created7} created · ${a.running} w toku`);
     }
+    if (sorted.length > MAX_AGENTS) lines.push(`• … i ${sorted.length - MAX_AGENTS} więcej (pełna lista w panelu)`);
     const multi = [...reworked.values()].filter((n) => n > 1).length;
     if (multi) lines.push(`♻️ Ponownie ukończone (rework): ${multi} zadań`);
   } else {
@@ -151,10 +156,10 @@ function buildText({ agents, decisions, blocked, running, reworked }) {
 
   if (decisions.length) {
     lines.push(`⚠️ Decyzje CEO: ${decisions.length} (najstarsza ${fmtAge(Math.floor(decisions[0].age / HOUR))})`);
-    for (const d of decisions.slice(0, WEEKLY ? 10 : 5)) {
-      lines.push(`• ${d.title.slice(0, 80)} — ${d.board} · ${fmtAge(Math.floor(d.age / HOUR))}`);
+    for (const d of decisions.slice(0, MAX_DECISIONS)) {
+      lines.push(`• ${d.title.slice(0, MAX_TITLE)} — ${d.board} · ${fmtAge(Math.floor(d.age / HOUR))}`);
     }
-    if (decisions.length > 5 && !WEEKLY) lines.push(`• … i ${decisions.length - 5} więcej (pełna lista w panelu)`);
+    if (decisions.length > MAX_DECISIONS) lines.push(`• … i ${decisions.length - MAX_DECISIONS} więcej (pełna lista w panelu)`);
     lines.push("");
   }
 
@@ -163,11 +168,15 @@ function buildText({ agents, decisions, blocked, running, reworked }) {
   lines.push("");
   lines.push(`Źródło: AOC · ${time}`);
 
-  return lines.join("\n");
+  let text = lines.join("\n");
+  if (text.length > MAX_TOTAL) text = text.slice(0, MAX_TOTAL) + "… (ucięto, reszta w panelu AOC)";
+  return text;
 }
 
 function main() {
   const data = collect();
+  // Cisza gdy nie ma nic godnego uwagi (cron: pusty stdout = brak dostawy).
+  if (!data.decisions.length && !data.blocked.length && !data.running.length) return;
   const text = buildText(data);
   process.stdout.write(text + "\n");
 }

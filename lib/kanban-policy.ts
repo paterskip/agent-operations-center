@@ -1,5 +1,3 @@
-import type { TaskStatus } from "./types";
-
 export type DecisionAction = "approve" | "reject" | "resume" | "hold";
 
 export interface DecisionPolicy {

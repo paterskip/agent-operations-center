@@ -2,11 +2,13 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import argon2 from "argon2";
 import fs from "node:fs";
+import { readFile } from "node:fs/promises";
 
 vi.mock("argon2");
 vi.mock("node:fs");
+vi.mock("node:fs/promises");
 
-const mockReadFile = vi.mocked(fs.readFileSync);
+const mockReadFile = vi.mocked(readFile);
 const mockWriteFile = vi.mocked(fs.writeFileSync);
 const mockRenameSync = vi.mocked(fs.renameSync);
 const mockArgonVerify = vi.mocked(argon2.verify);
@@ -66,7 +68,7 @@ describe("POST /api/account/password — CSRF origin check", () => {
 
   it("accepts matching origin and proceeds", async () => {
     const POST = await getHandler();
-    mockReadFile.mockReturnValue("username: ceo\npassword: 'fakehash'\n");
+    mockReadFile.mockResolvedValue("users:\n  ceo:\n    password: 'fakehash'\n");
     mockArgonVerify.mockResolvedValue(true);
     mockArgonHash.mockResolvedValue("$argon2id$v=19$m=131072,t=5,p=4$validhash");
     const req = new NextRequest("https://agents.example.com/api/account/password", {
@@ -117,7 +119,7 @@ describe("POST /api/account/password — input validation", () => {
 describe("POST /api/account/password — verify + verify failure", () => {
   it("returns 401 when current password does not verify", async () => {
     const POST = await getHandler();
-    mockReadFile.mockReturnValue("username: ceo\npassword: '$argon2id$fake'\n");
+    mockReadFile.mockResolvedValue("users:\n  ceo:\n    password: '$argon2id$fake'\n");
     mockArgonVerify.mockResolvedValue(false);
     const req = new NextRequest("https://agents.example.com/api/account/password", {
       method: "POST",
@@ -131,8 +133,8 @@ describe("POST /api/account/password — verify + verify failure", () => {
   it("writes new hash when current password verifies", async () => {
     const POST = await getHandler();
     const fakeHash = "$argon2id$v=19$m=131072,t=5,p=4$ab salt$ab hash";
-    const yamlContent = "username: ceo\npassword: '" + fakeHash + "'\n";
-    mockReadFile.mockReturnValue(yamlContent);
+    const yamlContent = "users:\n  ceo:\n    password: '" + fakeHash + "'\n";
+    mockReadFile.mockResolvedValue(yamlContent);
     mockArgonVerify.mockResolvedValue(true);
     mockArgonHash.mockResolvedValue("$argon2id$v=19$m=131072,t=5,p=4$rawhash");
     const req = new NextRequest("https://agents.example.com/api/account/password", {
@@ -146,7 +148,7 @@ describe("POST /api/account/password — verify + verify failure", () => {
     expect(mockWriteFile).toHaveBeenCalledTimes(1);
     expect(mockRenameSync).toHaveBeenCalledTimes(1);
     const [path, content] = mockWriteFile.mock.calls[0];
-    expect(path).toBe("/fake/users.yml.tmp." + process.pid);
+    expect(path).toMatch(/^\/fake\/users\.yml\.\d+\.[0-9a-f-]+\.tmp$/);
     expect(content).not.toContain(fakeHash);
     expect((content as string)).toMatch(/\$argon2id\$v=19\$/);
     // rename should point tmp -> final
@@ -156,9 +158,14 @@ describe("POST /api/account/password — verify + verify failure", () => {
 });
 
 describe("POST /api/account/password — YAML format parsing", () => {
+  // Realny format Authelii: `users:` → `  <name>:` → `    password:`.
+  const usersDoc = (entries: Record<string, string>) =>
+    "users:\n" + Object.entries(entries).map(([name, hash]) =>
+      `  ${name}:\n    disabled: false\n    password: '${hash}'\n`).join("");
+
   it("parses double-quoted password", async () => {
     const POST = await getHandler();
-    mockReadFile.mockReturnValue('username: ceo\npassword: "doublequotedhash"\n');
+    mockReadFile.mockResolvedValue("users:\n  ceo:\n    password: \"doublequotedhash\"\n");
     mockArgonVerify.mockResolvedValue(true);
     mockArgonHash.mockResolvedValue("$argon2id$v=19$m=131072,t=5,p=4$r");
     const req = new NextRequest("https://agents.example.com/api/account/password", {
@@ -174,9 +181,42 @@ describe("POST /api/account/password — YAML format parsing", () => {
     expect((content as string)).not.toContain("doublequotedhash");
   });
 
-  it("returns 500 when no password field found", async () => {
+  it("writes to the target user block, not the first password in the file", async () => {
     const POST = await getHandler();
-    mockReadFile.mockReturnValue("username: ceo\nemail: user@example.com\n");
+    const adminHash = "$argon2id$v=19$m=131072,t=5,p=4$adminsalt$adminhash";
+    const ceoHash = "$argon2id$v=19$m=131072,t=5,p=4$ceosalt$ceohash";
+    mockReadFile.mockResolvedValue(usersDoc({ admin: adminHash, ceo: ceoHash }));
+    mockArgonVerify.mockResolvedValue(true);
+    mockArgonHash.mockResolvedValue("$argon2id$v=19$m=131072,t=5,p=4$newsalt$newhash");
+    const req = new NextRequest("https://agents.example.com/api/account/password", {
+      method: "POST",
+      headers: { origin: "https://agents.example.com", "content-type": "application/json" },
+      body: JSON.stringify({ current: "oldpass1234", next: "newpassword12345" }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const [, content] = mockWriteFile.mock.calls[0] as [string, string];
+    // The ceo hash is replaced; the admin hash is left untouched.
+    expect(content).not.toContain(ceoHash);
+    expect(content).toContain(adminHash);
+    expect(content).toMatch(/^ {4}password: '\$argon2id\$v=19\$/m);
+  });
+
+  it("returns 500 when the target user has no password field", async () => {
+    const POST = await getHandler();
+    mockReadFile.mockResolvedValue("users:\n  ceo:\n    email: user@example.com\n");
+    const req = new NextRequest("https://agents.example.com/api/account/password", {
+      method: "POST",
+      headers: { origin: "https://agents.example.com", "content-type": "application/json" },
+      body: JSON.stringify({ current: "oldpass1234", next: "newpassword12345" }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(500);
+  });
+
+  it("returns 500 when the user is absent from the file", async () => {
+    const POST = await getHandler();
+    mockReadFile.mockResolvedValue(usersDoc({ admin: "$argon2id$v=19$m=131072,t=5,p=4$s$h" }));
     const req = new NextRequest("https://agents.example.com/api/account/password", {
       method: "POST",
       headers: { origin: "https://agents.example.com", "content-type": "application/json" },
@@ -189,8 +229,8 @@ describe("POST /api/account/password — YAML format parsing", () => {
   it("concurrent requests do not corrupt: each writes full file atomically", async () => {
     const POST = await getHandler();
     const fakeHash = "$argon2id$v=19$m=131072,t=5,p=4$oldsalt$oldhash";
-    const yamlContent = "username: ceo\npassword: '" + fakeHash + "'\n";
-    mockReadFile.mockReturnValue(yamlContent);
+    const yamlContent = usersDoc({ ceo: fakeHash });
+    mockReadFile.mockResolvedValue(yamlContent);
     mockArgonVerify.mockResolvedValue(true);
     mockArgonHash.mockImplementation(async () => `$argon2id$v=19$m=131072,t=5,p=4$${Math.random().toString(36).slice(2)}`);
 
@@ -214,7 +254,7 @@ describe("POST /api/account/password — YAML format parsing", () => {
     // Each write is a complete YAML replacing the old hash (no truncation/partial line)
     for (const wc of writtenContents) {
       expect(wc).not.toContain(fakeHash);
-      expect(wc).toContain("username: ceo");
+      expect(wc).toContain("  ceo:");
       expect(wc).toMatch(/password: '\$argon2id\$/);
     }
   });

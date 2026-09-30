@@ -6,6 +6,24 @@ import path from "node:path";
 
 const dbPath = process.env.AOC_STATE_DB || "/var/lib/agent-operations-center/aoc.db";
 const defaultHermes = process.env.HERMES_BIN || "/usr/local/bin/hermes";
+const defaultHermesApiUrl = "http://127.0.0.1:9119";
+
+function normalizeHermesApiUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error("AOC_HERMES_API_URL must be a valid URL");
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || !["localhost", "127.0.0.1", "[::1]", "::1"].includes(host)) {
+    throw new Error("AOC_HERMES_API_URL must use http(s) on a loopback host");
+  }
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString().replace(/\/$/, "");
+}
 
 /**
  * @typedef {Object} TaskSnapshot
@@ -32,7 +50,7 @@ export function hermesArgs(board, ...args) {
  */
 export function hermesApiEnv() {
   return {
-    url: process.env.AOC_HERMES_API_URL || "http://127.0.0.1:9119",
+    url: normalizeHermesApiUrl(process.env.AOC_HERMES_API_URL || defaultHermesApiUrl),
     token: process.env.AOC_HERMES_API_TOKEN || "",
   };
 }
@@ -60,8 +78,12 @@ export async function httpReopenTask(board, taskId, opts = hermesApiEnv(), fetch
       `Cannot reopen done task ${board}/${taskId} — fail-closed, status unchanged.`
     );
   }
+  if (!/^\S{32,256}$/.test(token)) {
+    throw new Error("AOC_HERMES_API_TOKEN must contain 32-256 non-whitespace characters");
+  }
+  const normalizedUrl = normalizeHermesApiUrl(url);
   const target =
-    `${url.replace(/\/+$/, "")}/api/plugins/kanban/tasks/` +
+    `${normalizedUrl}/api/plugins/kanban/tasks/` +
     `${encodeURIComponent(taskId)}?board=${encodeURIComponent(board)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
@@ -138,9 +160,10 @@ export function runOne(db, exec = defaultExec) {
   const command = db.prepare("SELECT id,kind,idea_id ideaId FROM commands WHERE status='pending' AND attempts < 3 ORDER BY id LIMIT 1").get();
   if (!command) return false;
   const ts = now();
+  const claimed = db.prepare("UPDATE commands SET status='running', attempts=attempts+1, updated_at=? WHERE id=? AND status='pending' AND attempts < 3").run(ts, command.id);
+  if (claimed.changes !== 1) return false;
 
   if (command.kind === "board.create") {
-    db.prepare("UPDATE commands SET status='running', attempts=attempts+1, updated_at=? WHERE id=?").run(ts, command.id);
     try {
       const payload = JSON.parse(command.ideaId);
       const args = ["boards", "create", payload.slug];
@@ -180,7 +203,6 @@ export function runOne(db, exec = defaultExec) {
     })();
     return true;
   }
-  db.prepare("UPDATE commands SET status='running', attempts=attempts+1, updated_at=? WHERE id=?").run(ts, command.id);
   try {
     const body = [
       `Projekt docelowy: ${idea.project}`,
@@ -386,44 +408,56 @@ const BACKUP_KEEP = 24;
 export function backupKanban(opts = {}) {
   const stateDb = opts.stateDbPath || process.env.AOC_STATE_DB || "/var/lib/agent-operations-center/aoc.db";
   const stampFile = path.join(path.dirname(stateDb), ".aoc-last-backup");
+  const lockFile = `${stampFile}.lock`;
   const nowMs = Date.now();
   try {
     const lastMs = Number(fs.readFileSync(stampFile, "utf8").trim());
     if (!Number.isNaN(lastMs) && nowMs - lastMs < BACKUP_MS) return;
   } catch {}
-  const kanbanRoot = opts.kanbanRoot || process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
-  const boardsDir = path.join(kanbanRoot, "boards");
-  const backupDir = path.join(kanbanRoot, "backups");
-  fs.mkdirSync(backupDir, { recursive: true });
-  const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const defaultDb = path.join(kanbanRoot, "..", "kanban.db");
-  if (fs.existsSync(defaultDb)) {
-    try {
-      const c = new Database(defaultDb);
-      try { c.pragma("wal_checkpoint(TRUNCATE)"); } finally { c.close(); }
-    } catch { /* busy */ }
-    fs.copyFileSync(defaultDb, path.join(backupDir, `default-${ts}.db`));
+  fs.mkdirSync(path.dirname(stampFile), { recursive: true });
+  let lock;
+  try {
+    lock = fs.openSync(lockFile, "wx");
+  } catch {
+    return;
   }
-  const boardSlugs = fs.existsSync(boardsDir) ? fs.readdirSync(boardsDir) : [];
-  for (const slug of boardSlugs) {
-    if (slug.startsWith("_") || slug.includes("..")) continue;
-    const src = path.join(boardsDir, slug, "kanban.db");
-    if (!fs.existsSync(src)) continue;
-    const dest = path.join(backupDir, `${slug}-${ts}.db`);
-    try {
-      const checkpoint = new Database(src);
-      try { checkpoint.pragma("wal_checkpoint(TRUNCATE)"); } finally { checkpoint.close(); }
-    } catch { /* busy */ }
-    fs.copyFileSync(src, dest);
+  try {
+    const kanbanRoot = opts.kanbanRoot || process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
+    const boardsDir = path.join(kanbanRoot, "boards");
+    const backupDir = path.join(kanbanRoot, "backups");
+    fs.mkdirSync(backupDir, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const defaultDb = path.join(kanbanRoot, "..", "kanban.db");
+    if (fs.existsSync(defaultDb)) vacuumInto(defaultDb, path.join(backupDir, `default-${ts}.db`));
+    const boardSlugs = fs.existsSync(boardsDir) ? fs.readdirSync(boardsDir) : [];
+    for (const slug of boardSlugs) {
+      if (slug.startsWith("_") || slug.includes("..")) continue;
+      const src = path.join(boardsDir, slug, "kanban.db");
+      if (!fs.existsSync(src)) continue;
+      vacuumInto(src, path.join(backupDir, `${slug}-${ts}.db`));
+    }
+    for (const slug of boardSlugs) {
+      if (slug.startsWith("_") || slug.includes("..")) continue;
+      const backups = fs.readdirSync(backupDir).filter((f) => f.startsWith(`${slug}-`) && f.endsWith(".db")).sort().reverse();
+      for (const old of backups.slice(BACKUP_KEEP)) fs.unlinkSync(path.join(backupDir, old));
+      const defBackups = fs.readdirSync(backupDir).filter((f) => f.startsWith("default-") && f.endsWith(".db")).sort().reverse();
+      for (const old of defBackups.slice(BACKUP_KEEP)) fs.unlinkSync(path.join(backupDir, old));
+    }
+    fs.writeFileSync(stampFile, String(nowMs));
+  } finally {
+    fs.close(lock);
+    fs.rmSync(lockFile, { force: true });
   }
-  for (const slug of boardSlugs) {
-    if (slug.startsWith("_") || slug.includes("..")) continue;
-    const backups = fs.readdirSync(backupDir).filter((f) => f.startsWith(`${slug}-`) && f.endsWith(".db")).sort().reverse();
-    for (const old of backups.slice(BACKUP_KEEP)) fs.unlinkSync(path.join(backupDir, old));
-    const defBackups = fs.readdirSync(backupDir).filter((f) => f.startsWith("default-") && f.endsWith(".db")).sort().reverse();
-    for (const old of defBackups.slice(BACKUP_KEEP)) fs.unlinkSync(path.join(backupDir, old));
+}
+
+function vacuumInto(source, destination) {
+  if (fs.existsSync(destination)) fs.unlinkSync(destination);
+  const db = new Database(source, { readonly: true, fileMustExist: true });
+  try {
+    db.prepare("VACUUM INTO ?").run(destination);
+  } finally {
+    db.close();
   }
-  fs.writeFileSync(stampFile, String(nowMs));
 }
 
 export function checkpointAll(opts = {}) {

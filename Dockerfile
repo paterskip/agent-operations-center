@@ -14,7 +14,7 @@ RUN npm run build
 FROM node:24-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
-RUN useradd --system --uid 1001 nextjs
+RUN groupadd --gid 1001 nextjs && useradd --uid 1001 --gid 1001 --create-home --shell /usr/sbin/nologin nextjs
 COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
