@@ -23,7 +23,18 @@ function openReadOnly(dbPath: string) {
     // cannot be opened read-only there — copy the (broker-checkpointed) main
     // file to the writable tmp dir and read the copy. Stale temp copies are
     // swept on each fallback open.
-    if (err instanceof Error && /readonly/i.test(err.message)) {
+    //
+    // The failure surfaces as SQLITE_CANTOPEN "unable to open database file":
+    // with WAL active and -shm absent, SQLite must create the shared-memory
+    // file, which a read-only mount refuses. That error does not mention the
+    // word "readonly", so match the code and message explicitly. A genuinely
+    // missing database throws the same CANTOPEN message, so only fall back
+    // when the source file actually exists.
+    const readonlyMountErr =
+      err instanceof Error &&
+      (err as { code?: string }).code === "SQLITE_CANTOPEN" &&
+      fs.existsSync(dbPath);
+    if (readonlyMountErr || (err instanceof Error && /readonly/i.test(err.message))) {
       const prefix = `aoc-db-${path.basename(dbPath)}-`;
       const tmpDir = os.tmpdir();
       try {
