@@ -79,19 +79,3 @@ export function isDecisionAlreadyResolved(action: DecisionAction, currentStatus:
   const policy = DECISION_POLICIES[action];
   return policy ? policy.isAlreadyResolved(currentStatus) : false;
 }
-
-export const KANBAN_ALLOWED_DROPS: Record<string, string[]> = {
-  triage: [],
-  todo: ["scheduled"],
-  scheduled: [],
-  ready: ["running"],
-  running: ["blocked", "review"],
-  blocked: [],
-  review: ["ready"],
-  done: [],
-};
-
-export function isAllowedMove(from: string, to: string): boolean {
-  if (from === to) return false;
-  return (KANBAN_ALLOWED_DROPS[from] || []).includes(to);
-}

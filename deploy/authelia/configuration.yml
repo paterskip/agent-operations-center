@@ -27,7 +27,11 @@ webauthn:
 authentication_backend:
   file:
     path: '/config/users_database.yml'
-    watch: false
+    # The panel rewrites this file in place (atomic tmp+rename) when the CEO
+    # changes their password. With watch disabled Authelia would keep serving
+    # the hash it read at startup, so a password change would not actually
+    # invalidate the old credential until a manual restart.
+    watch: true
     password:
       algorithm: 'argon2'
       argon2:

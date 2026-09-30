@@ -3,11 +3,13 @@ import {
   decisionAllowed,
   isDecisionSatisfied,
   isDecisionAlreadyResolved,
-  isAllowedMove,
   ACTIVE_UNBLOCKED_STATUSES,
 } from "./kanban-policy";
 
-describe("kanban-policy (SSOT)", () => {
+// Kanban DnD transition rules live in lib/transitions.ts (the single source of
+// truth shared by the DnD UI, the move API and the broker) and are tested in
+// lib/transitions.test.ts. This file covers the CEO decision policy only.
+describe("kanban-policy (CEO decisions)", () => {
   describe("decisionAllowed (pre-conditions)", () => {
     it("allows approve/resume only on blocked or scheduled tasks", () => {
       expect(decisionAllowed("approve", "blocked")).toBe(true);
@@ -71,21 +73,6 @@ describe("kanban-policy (SSOT)", () => {
     it("detects if task was already blocked for hold/reject", () => {
       expect(isDecisionAlreadyResolved("hold", "blocked")).toBe(true);
       expect(isDecisionAlreadyResolved("hold", "running")).toBe(false);
-    });
-  });
-
-  describe("isAllowedMove (Kanban DnD rules)", () => {
-    it("validates allowed transitions correctly", () => {
-      expect(isAllowedMove("todo", "scheduled")).toBe(true);
-      expect(isAllowedMove("ready", "running")).toBe(true);
-      expect(isAllowedMove("running", "blocked")).toBe(true);
-      expect(isAllowedMove("running", "review")).toBe(true);
-      expect(isAllowedMove("review", "ready")).toBe(true);
-
-      expect(isAllowedMove("todo", "done")).toBe(false);
-      expect(isAllowedMove("blocked", "done")).toBe(false);
-      expect(isAllowedMove("done", "running")).toBe(false);
-      expect(isAllowedMove("running", "running")).toBe(false);
     });
   });
 });
