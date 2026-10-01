@@ -466,21 +466,22 @@ function vacuumInto(source, destination) {
 export function checkpointAll(opts = {}) {
   try {
     const kanbanRoot = opts.kanbanRoot || process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
+    const hermesRoot = path.resolve(kanbanRoot, "..");
+    const profilesRoot = process.env.HERMES_PROFILES_ROOT || path.join(hermesRoot, "profiles");
     const boardsDir = path.join(kanbanRoot, "boards");
     const statePaths = [
-      path.join(kanbanRoot, "..", "kanban.db"),
-      "/root/.hermes/state.db",
-      "/root/.hermes/profiles/pm/state.db",
-      "/root/.hermes/profiles/reviewer/state.db",
-      "/root/.hermes/profiles/coder/state.db",
-      "/root/.hermes/profiles/coder-backend/state.db",
-      "/root/.hermes/profiles/coder-frontend/state.db",
-      "/root/.hermes/profiles/coder-parallel/state.db",
-      "/root/.hermes/profiles/designer/state.db",
-      "/root/.hermes/profiles/tester/state.db",
-      "/root/.hermes/profiles/security/state.db",
-      "/root/.hermes/profiles/sec/state.db",
+      path.join(hermesRoot, "kanban.db"),
+      path.join(hermesRoot, "state.db"),
     ];
+    // Scan the profiles directory instead of listing agent slugs by hand: a
+    // hardcoded list silently skipped every profile added after it was written,
+    // so those state.db files were never checkpointed.
+    if (fs.existsSync(profilesRoot)) {
+      for (const slug of fs.readdirSync(profilesRoot)) {
+        if (slug.startsWith("_") || slug.includes("..")) continue;
+        statePaths.push(path.join(profilesRoot, slug, "state.db"));
+      }
+    }
     if (fs.existsSync(boardsDir)) {
       for (const slug of fs.readdirSync(boardsDir)) {
         if (slug.startsWith("_") || slug.includes("..")) continue;

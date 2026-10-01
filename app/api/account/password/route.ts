@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { readFile } from "node:fs/promises";
 import crypto from "node:crypto";
 import argon2 from "argon2";
+import { CSRF_REJECTED, isSameOriginRequest } from "@/lib/csrf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,8 +55,7 @@ function atomicWrite(path: string, content: string) {
 }
 
 export async function POST(request: Request) {
-  const expectedOrigin = process.env.AOC_PUBLIC_URL || "https://agents.paterski.com";
-  if (request.headers.get("origin") !== expectedOrigin) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+  if (!isSameOriginRequest(request)) return NextResponse.json(CSRF_REJECTED, { status: 403 });
 
   let body: { current?: string; next?: string } = {};
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Nieprawidłowy JSON." }, { status: 400 }); }

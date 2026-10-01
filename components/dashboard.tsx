@@ -758,7 +758,10 @@ export default function Dashboard() {
     }
   }
 
-  // ── Inactivity Auto-Lock (10 minutes safety logout) ──
+  /* Inactivity auto-lock. Authelia owns the session (inactivity: 15m), so we
+     just clear its cookies and reload — reloading sends the browser back
+     through the identity provider, which re-authenticates or bounces to login.
+     The old code claimed "logged out" while leaving the session untouched. */
   const performLogout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
@@ -773,7 +776,7 @@ export default function Dashboard() {
     const resetTimer = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        addToast("Wylogowano automatycznie po 10 minutach braku aktywności", "warning");
+        addToast("Brak aktywności — sesja zostanie zamknięta", "warning");
         void performLogout();
       }, INACTIVITY_LIMIT_MS);
     };

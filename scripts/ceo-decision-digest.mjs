@@ -3,8 +3,13 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 
-const boardsDir = "/root/.hermes/kanban/boards";
 const HOUR = 3600;
+
+// Read the root from the environment like every other collector
+// (executive-digest.mjs, ceo-alerts.mjs). A hardcoded path silently produced
+// "no pending decisions" wherever HERMES_KANBAN_ROOT pointed elsewhere.
+const KANBAN_ROOT = process.env.HERMES_KANBAN_ROOT || "/root/.hermes/kanban";
+const boardsDir = path.join(KANBAN_ROOT, "boards");
 
 function listBoards() {
   const slugs = [];

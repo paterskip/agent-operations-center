@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSnapshot } from "@/lib/hermes";
 import { audit, enqueueMove } from "@/lib/state";
 import { CommentCreateSchema } from "@/lib/schemas";
+import { CSRF_REJECTED, isSameOriginRequest } from "@/lib/csrf";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,9 +12,8 @@ function ip(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const expectedOrigin = process.env.AOC_PUBLIC_URL || "https://agents.paterski.com";
-  if (request.headers.get("origin") !== expectedOrigin) {
-    return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+  if (!isSameOriginRequest(request)) {
+    return NextResponse.json(CSRF_REJECTED, { status: 403 });
   }
   if (!request.headers.get("content-type")?.startsWith("application/json")) {
     return NextResponse.json({ error: "JSON required" }, { status: 415 });

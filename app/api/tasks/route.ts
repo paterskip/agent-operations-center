@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSnapshot } from "@/lib/hermes";
 import { audit, enqueueMove, listMoves } from "@/lib/state";
 import { isAllowedMove, ALLOWED_DROPS } from "@/lib/transitions";
+import { CSRF_REJECTED, isSameOriginRequest } from "@/lib/csrf";
 import { TaskCreateSchema, TaskPatchSchema } from "@/lib/schemas";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +20,7 @@ export function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const expectedOrigin = process.env.AOC_PUBLIC_URL || "https://agents.paterski.com";
-  if (request.headers.get("origin") !== expectedOrigin) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+  if (!isSameOriginRequest(request)) return NextResponse.json(CSRF_REJECTED, { status: 403 });
   if (!request.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "JSON required" }, { status: 415 });
   try {
     const text = await request.text();
@@ -53,8 +53,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const expectedOrigin = process.env.AOC_PUBLIC_URL || "https://agents.paterski.com";
-  if (request.headers.get("origin") !== expectedOrigin) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
+  if (!isSameOriginRequest(request)) return NextResponse.json(CSRF_REJECTED, { status: 403 });
   if (!request.headers.get("content-type")?.startsWith("application/json")) return NextResponse.json({ error: "JSON required" }, { status: 415 });
   try {
     const raw: unknown = await request.json();
