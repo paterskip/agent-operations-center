@@ -14,6 +14,8 @@ export type TaskCardLike = {
   status: string;
   assignee: string | null;
   boardSlug?: string;
+  /** Older payload shape: the board slug arrived as `board`. */
+  board?: string;
 };
 
 export type ActivityEntry = {
@@ -40,7 +42,7 @@ export function applyTaskDeltas<T extends TaskCardLike>(tasks: T[], deltas: Task
     const d = deltas.find((x) => x.id === t.id);
     if (!d) return t;
     // Prevent cross-board pollution: if activeBoardSlug is set, ignore deltas for tasks on other boards
-    const taskBoard = t.boardSlug || (t as unknown as { board?: string }).board || activeBoardSlug;
+    const taskBoard = t.boardSlug || t.board || activeBoardSlug;
     if (activeBoardSlug && d.board !== activeBoardSlug && taskBoard !== activeBoardSlug) return t;
 
     if (d.status === t.status && d.assignee === t.assignee) return t;

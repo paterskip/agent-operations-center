@@ -12,6 +12,36 @@ const profilesRoot = process.env.HERMES_PROFILES_ROOT || "/root/.hermes/profiles
 type BoardRecord = { slug: string; name: string; description?: string; icon?: string; color?: string; dbPath: string };
 type AnyRow = Record<string, unknown>;
 
+// Cached temp copies used by the read-only-mount fallback, keyed by source
+// path. On a read-only Docker mount EVERY open hits the fallback, so copying
+// the file on each call made each snapshot cost a full DB copy — and the SSE
+// stream opens every board on every 2.5s tick.
+const tmpCopies = new Map<string, { path: string; sourceMtimeMs: number; createdAt: number }>();
+const TMP_COPY_TTL_MS = 60_000;
+const TMP_COPY_MAX_ENTRIES = 64;
+
+function reuseOrCreateTmpCopy(dbPath: string, prefix: string): string {
+  const sourceMtimeMs = fs.statSync(dbPath).mtimeMs;
+  const cached = tmpCopies.get(dbPath);
+  if (cached && cached.sourceMtimeMs === sourceMtimeMs && Date.now() - cached.createdAt < TMP_COPY_TTL_MS) {
+    return cached.path;
+  }
+  if (cached) {
+    try { fs.unlinkSync(cached.path); } catch { /* already gone */ }
+  }
+  if (tmpCopies.size >= TMP_COPY_MAX_ENTRIES) {
+    const oldest = [...tmpCopies.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt).slice(0, 16);
+    for (const [key, entry] of oldest) {
+      tmpCopies.delete(key);
+      try { fs.unlinkSync(entry.path); } catch { /* already gone */ }
+    }
+  }
+  const copyPath = path.join(os.tmpdir(), `${prefix}${process.pid}-${Date.now()}.db`);
+  fs.copyFileSync(dbPath, copyPath);
+  tmpCopies.set(dbPath, { path: copyPath, sourceMtimeMs, createdAt: Date.now() });
+  return copyPath;
+}
+
 function openReadOnly(dbPath: string) {
   try {
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
@@ -21,8 +51,8 @@ function openReadOnly(dbPath: string) {
     // Docker: the kanban mount is read-only and -wal/-shm are not mounted
     // (SQLite deletes them when the last connection closes). A WAL-mode DB
     // cannot be opened read-only there — copy the (broker-checkpointed) main
-    // file to the writable tmp dir and read the copy. Stale temp copies are
-    // swept on each fallback open.
+    // file to the writable tmp dir and read the copy. The copy is cached per
+    // source mtime (see reuseOrCreateTmpCopy) and stale files are swept.
     //
     // The failure surfaces as SQLITE_CANTOPEN "unable to open database file":
     // with WAL active and -shm absent, SQLite must create the shared-memory
@@ -45,8 +75,7 @@ function openReadOnly(dbPath: string) {
           try { if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full); } catch {}
         }
       } catch {}
-      const copyPath = path.join(tmpDir, `${prefix}${process.pid}-${Date.now()}.db`);
-      fs.copyFileSync(dbPath, copyPath);
+      const copyPath = reuseOrCreateTmpCopy(dbPath, prefix);
       const db = new Database(copyPath, { readonly: true, fileMustExist: true });
       db.pragma("query_only = ON");
       return db;
@@ -98,6 +127,32 @@ function readTasks(board: BoardRecord): TaskCard[] {
     const comments = db.prepare("SELECT id,task_id,author,body,created_at FROM task_comments ORDER BY created_at DESC").all() as AnyRow[];
     const runs = db.prepare("SELECT id,task_id,profile,status,outcome,started_at,ended_at,summary,error FROM task_runs ORDER BY id DESC").all() as AnyRow[];
     const attachments = new Map<string, number>((db.prepare("SELECT task_id, COUNT(*) count FROM task_attachments GROUP BY task_id").all() as AnyRow[]).map((r) => [String(r.task_id), Number(r.count)]));
+    // Index the relation rows once instead of scanning them per task: the
+    // previous per-task .filter() made every snapshot O(tasks × rows).
+    const parentsByChild = new Map<string, string[]>();
+    const childrenByParent = new Map<string, string[]>();
+    for (const l of links) {
+      const child = String(l.child_id);
+      const parent = String(l.parent_id);
+      const parents = parentsByChild.get(child);
+      if (parents) parents.push(parent); else parentsByChild.set(child, [parent]);
+      const children = childrenByParent.get(parent);
+      if (children) children.push(child); else childrenByParent.set(parent, [child]);
+    }
+    const commentsByTask = new Map<string, TaskCard["comments"]>();
+    for (const c of comments) {
+      const taskId = String(c.task_id);
+      const list = commentsByTask.get(taskId);
+      const comment = { id: Number(c.id), author: String(c.author), body: String(c.body), createdAt: Number(c.created_at) };
+      if (list) list.push(comment); else commentsByTask.set(taskId, [comment]);
+    }
+    const runsByTask = new Map<string, TaskCard["runs"]>();
+    for (const run of runs) {
+      const taskId = String(run.task_id);
+      const list = runsByTask.get(taskId);
+      const mapped = { id: Number(run.id), profile: String(run.profile || ""), status: String(run.status || ""), outcome: run.outcome == null ? null : String(run.outcome), startedAt: run.started_at == null ? null : Number(run.started_at), endedAt: run.ended_at == null ? null : Number(run.ended_at), summary: run.summary == null ? null : String(run.summary), error: run.error == null ? null : String(run.error) };
+      if (list) list.push(mapped); else runsByTask.set(taskId, [mapped]);
+    }
     return rows.map((r) => {
       const id = String(r.id);
       return {
@@ -106,9 +161,9 @@ function readTasks(board: BoardRecord): TaskCard[] {
         createdAt: Number(r.created_at), startedAt: r.started_at == null ? null : Number(r.started_at), completedAt: r.completed_at == null ? null : Number(r.completed_at),
         branchName: r.branch_name == null ? null : String(r.branch_name), result: r.result == null ? null : String(r.result),
         blockKind: r.block_kind == null ? null : String(r.block_kind), lastHeartbeatAt: r.last_heartbeat_at == null ? null : Number(r.last_heartbeat_at), modelOverride: r.model_override == null ? null : String(r.model_override),
-        parentIds: links.filter((l) => String(l.child_id) === id).map((l) => String(l.parent_id)), childIds: links.filter((l) => String(l.parent_id) === id).map((l) => String(l.child_id)),
-        comments: comments.filter((c) => String(c.task_id) === id).map((c) => ({ id: Number(c.id), author: String(c.author), body: String(c.body), createdAt: Number(c.created_at) })),
-        runs: runs.filter((run) => String(run.task_id) === id).map((run) => ({ id: Number(run.id), profile: String(run.profile || ""), status: String(run.status || ""), outcome: run.outcome == null ? null : String(run.outcome), startedAt: run.started_at == null ? null : Number(run.started_at), endedAt: run.ended_at == null ? null : Number(run.ended_at), summary: run.summary == null ? null : String(run.summary), error: run.error == null ? null : String(run.error) })),
+        parentIds: parentsByChild.get(id) || [], childIds: childrenByParent.get(id) || [],
+        comments: commentsByTask.get(id) || [],
+        runs: runsByTask.get(id) || [],
         attachmentCount: attachments.get(id) || 0,
       };
     });
@@ -334,13 +389,27 @@ export function findTask(taskId: string, preferredBoard?: string | null): { task
   return null;
 }
 
+const CURSOR_TTL_MS = 1_000;
+let cursorCache: { value: string; at: number } | null = null;
+
+/**
+ * Per-board MAX(task_events.id), cached briefly.
+ *
+ * The SSE stream calls this on every 2.5s tick for every connected client, and
+ * each call opens every board database. A one-second cache collapses that to
+ * at most one read per second regardless of client count, while staying well
+ * under the tick interval so updates are still delivered promptly.
+ */
 export function activityCursor(): string {
-  return discoverBoards().map((board) => {
+  if (cursorCache && Date.now() - cursorCache.at < CURSOR_TTL_MS) return cursorCache.value;
+  const value = discoverBoards().map((board) => {
     try {
       const db = openReadOnly(board.dbPath);
       try { const row = db.prepare("SELECT MAX(id) id FROM task_events").get() as AnyRow | undefined; return `${board.slug}:${row?.id || 0}`; } finally { db.close(); }
     } catch { return `${board.slug}:0`; }
   }).join("|");
+  cursorCache = { value, at: Date.now() };
+  return value;
 }
 
 /** Events inserted after the given cursor (per board), newest first. */

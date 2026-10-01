@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSnapshot } from "@/lib/hermes";
+import { findTask } from "@/lib/hermes";
 import { audit, enqueueDecision, listDecisions } from "@/lib/state";
 import { decisionAllowed, decisionTransitions } from "@/lib/decision-policy";
 import { DecisionCreateSchema } from "@/lib/schemas";
@@ -36,27 +36,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Podaj powód (minimum 5 znaków)" }, { status: 400 });
     }
 
-    const snapshot = getSnapshot(board);
-    let task = snapshot.selectedBoard === board ? snapshot.tasks.find((item) => item.id === taskId) : null;
-    let actualBoard = board;
+    // findTask resolves the task on the requested board first and falls back to
+    // the remaining boards, reading each board's tasks once. The previous
+    // getSnapshot() per board rebuilt a full cross-board snapshot for every
+    // candidate board, so one decision cost O(boards²) reads.
+    const found = findTask(taskId, board);
+    if (!found) return NextResponse.json({ error: "Task nie istnieje" }, { status: 404 });
+    const { task, board: actualBoard } = found;
 
-
-    if (!task) {
-      // Fallback: search for task across all boards to handle cross-board decisions securely
-      const allBoards = snapshot.boards;
-      for (const b of allBoards) {
-        if (b.slug === board) continue;
-        const bs = getSnapshot(b.slug);
-        const found = bs.tasks.find((item) => item.id === taskId);
-        if (found) {
-          task = found;
-          actualBoard = b.slug;
-          break;
-        }
-      }
-    }
-
-    if (!task) return NextResponse.json({ error: "Task nie istnieje" }, { status: 404 });
     if (!decisionAllowed(action, task.status)) return NextResponse.json({ error: `Akcja ${action} nie jest dozwolona dla statusu ${task.status}` }, { status: 409 });
 
     const rule = decisionTransitions[action];

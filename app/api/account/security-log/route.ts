@@ -9,10 +9,19 @@ function ip(request: NextRequest): string {
 }
 
 export function GET(request: NextRequest) {
-  const username = request.headers.get("remote-user") || "";
+  // proxy.ts resolves the role once and forwards it as `x-user-role`. Read the
+  // role rather than re-deriving it from remote-user: an observer account that
+  // happened to share AOC_USERNAME would otherwise inherit full audit access,
+  // and observers should get 403 (known-but-forbidden) instead of 401.
+  const role = request.headers.get("x-user-role");
   const devAuthDisabled = process.env.NODE_ENV !== "production" && process.env.AOC_DISABLE_AUTH === "true";
-  if (!devAuthDisabled && username !== process.env.AOC_USERNAME) {
-    return NextResponse.json({ error: "Brak autoryzacji" }, { status: 401 });
+  if (!devAuthDisabled) {
+    if (role === "observer") {
+      return NextResponse.json({ error: "Dostęp w trybie tylko do odczytu (Rola: Observer)" }, { status: 403 });
+    }
+    if (role !== "ceo") {
+      return NextResponse.json({ error: "Brak autoryzacji" }, { status: 401 });
+    }
   }
 
   try {

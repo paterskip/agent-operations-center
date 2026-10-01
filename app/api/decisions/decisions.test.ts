@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 const mockListDecisions = vi.hoisted(() => vi.fn());
 const mockEnqueueDecision = vi.hoisted(() => vi.fn());
 const mockAudit = vi.hoisted(() => vi.fn());
-const mockGetSnapshot = vi.hoisted(() => vi.fn());
+const mockFindTask = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/state", () => ({
   listDecisions: (...a: unknown[]) => mockListDecisions(...a),
@@ -13,7 +13,7 @@ vi.mock("@/lib/state", () => ({
 }));
 
 vi.mock("@/lib/hermes", () => ({
-  getSnapshot: (...a: unknown[]) => mockGetSnapshot(...a),
+  findTask: (...a: unknown[]) => mockFindTask(...a),
 }));
 
 describe("GET /api/decisions", () => {
@@ -38,9 +38,9 @@ describe("POST /api/decisions", () => {
   });
 
   it("enqueues approve decision on blocked task successfully", async () => {
-    mockGetSnapshot.mockReturnValue({
-      selectedBoard: "main-board",
-      tasks: [{ id: "T-100", status: "blocked" }],
+    mockFindTask.mockReturnValue({
+      task: { id: "T-100", status: "blocked" },
+      board: "main-board",
     });
     mockEnqueueDecision.mockReturnValue({ id: "dec-1", status: "queued" });
 
@@ -72,9 +72,9 @@ describe("POST /api/decisions", () => {
   });
 
   it("enqueues approve decision on blocked task with needs_input blockKind", async () => {
-    mockGetSnapshot.mockReturnValue({
-      selectedBoard: "portfolio",
-      tasks: [{ id: "t_ea0c8d82", status: "blocked", blockKind: "needs_input" }],
+    mockFindTask.mockReturnValue({
+      task: { id: "t_ea0c8d82", status: "blocked", blockKind: "needs_input" },
+      board: "portfolio",
     });
     mockEnqueueDecision.mockReturnValue({ id: "dec-2", status: "queued" });
 
@@ -106,10 +106,68 @@ describe("POST /api/decisions", () => {
   });
 
 
+  it("enqueues the decision on the board the task actually lives on", async () => {
+    // The task is not on the requested board; findTask reports the real one.
+    mockFindTask.mockReturnValue({
+      task: { id: "t_cross", status: "blocked" },
+      board: "inny-board",
+    });
+    mockEnqueueDecision.mockReturnValue({ id: "dec-3", status: "queued" });
+
+    const { POST } = await import("./route");
+    const req = new NextRequest("http://localhost:3010/api/decisions", {
+      method: "POST",
+      headers: {
+        origin: "http://localhost:3010",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        board: "main-board",
+        taskId: "t_cross",
+        action: "approve",
+        comment: "cross board approve",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(202);
+    expect(mockEnqueueDecision).toHaveBeenCalledWith({
+      board: "inny-board",
+      taskId: "t_cross",
+      action: "approve",
+      fromStatus: "blocked",
+      toStatus: null,
+      comment: "cross board approve",
+    });
+  });
+
+  it("returns 404 when the task does not exist on any board", async () => {
+    mockFindTask.mockReturnValue(null);
+
+    const { POST } = await import("./route");
+    const req = new NextRequest("http://localhost:3010/api/decisions", {
+      method: "POST",
+      headers: {
+        origin: "http://localhost:3010",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        board: "main-board",
+        taskId: "t_missing",
+        action: "approve",
+        comment: "missing task",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(404);
+    expect(mockEnqueueDecision).not.toHaveBeenCalled();
+  });
+
   it("rejects action if task status is not allowed by policy", async () => {
-    mockGetSnapshot.mockReturnValue({
-      selectedBoard: "main-board",
-      tasks: [{ id: "T-100", status: "done" }],
+    mockFindTask.mockReturnValue({
+      task: { id: "T-100", status: "done" },
+      board: "main-board",
     });
 
     const { POST } = await import("./route");
