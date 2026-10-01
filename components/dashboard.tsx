@@ -758,15 +758,20 @@ export default function Dashboard() {
     }
   }
 
-  /* Inactivity auto-lock. Authelia owns the session (inactivity: 15m), so we
-     just clear its cookies and reload — reloading sends the browser back
-     through the identity provider, which re-authenticates or bounces to login.
-     The old code claimed "logged out" while leaving the session untouched. */
+  /* The session belongs to the identity provider, so the app cannot end it —
+     it asks Authelia to destroy it and navigates the browser there. Reloading
+     alone left the user authenticated, while the toast claimed otherwise. */
   const performLogout = useCallback(async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
-    } catch {}
-    window.location.reload();
+      const res = await fetch("/api/auth/logout", { method: "POST", cache: "no-store" });
+      const data = (await res.json().catch(() => null)) as { redirect?: string } | null;
+      // The logout target is the identity provider, so a full navigation is the
+      // only thing that can carry the browser there.
+      if (data?.redirect) window.location.href = data.redirect;
+      else window.location.reload();
+    } catch {
+      window.location.reload();
+    }
   }, []);
 
   useEffect(() => {
@@ -776,7 +781,7 @@ export default function Dashboard() {
     const resetTimer = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        addToast("Brak aktywności — sesja zostanie zamknięta", "warning");
+        addToast("Brak aktywności — przekierowanie do wylogowania", "warning");
         void performLogout();
       }, INACTIVITY_LIMIT_MS);
     };
@@ -916,6 +921,10 @@ export default function Dashboard() {
     }
     return m;
   }, [data, tasks]);
+
+  // Bar widths are relative to the best performer; computed once per scorecard
+  // instead of re-scanning the list for every rendered row.
+  const scorecardMax = useMemo(() => Math.max(0, ...(scorecard || []).map((r) => r.done30), 1), [scorecard]);
 
   const visibleTasks = useMemo(() => {
     return tasks.filter((t) => {
@@ -1369,14 +1378,13 @@ export default function Dashboard() {
         {scorecard && scorecard.length > 0 && <div className="scorecard" aria-label="Wyniki agentów (30 dni)">
           <div className="section-head"><div><p className="eyebrow">DELIVERY METRICS</p><h2>Scorecard — 30 dni</h2></div><span className="updated">aktualizowane na żywo</span></div>
           <div className="scorecard-table">
-            {scorecard.map((row) => {
-              const max = Math.max(...scorecard.map((r) => r.done30), 1);
-              return <div className="scorecard-row" key={row.slug}>
+            {scorecard.map((row) => (
+              <div className="scorecard-row" key={row.slug}>
                 <span className="scorecard-name" title={row.slug}>{row.name}</span>
-                <span className="scorecard-bar"><i style={{ width: `${Math.round((row.done30 / max) * 100)}%` }} /></span>
+                <span className="scorecard-bar"><i style={{ width: `${Math.round((row.done30 / scorecardMax) * 100)}%` }} /></span>
                 <span className="scorecard-nums"><b title="ukończone 7d/30d">{row.done7}/{row.done30}</b><em title="zablokowane 7d/30d">⚑ {row.blocked7}/{row.blocked30}</em>{row.rework30 > 0 && <em className="rework" title="zadania ukończone ponownie (rework)">↻ {row.rework30}</em>}<em title="w toku / ogółem">◉ {row.running}/{row.total}</em>{row.cost30 != null && <em className="cost" title={`${row.sessions30} sesji kanban · ${row.tokens30.toLocaleString("pl-PL")} tokenów (30 dni)`}>{row.cost30 > 0 ? `≈ $${row.cost30.toFixed(2)}` : `${(row.tokens30 / 1e6).toFixed(1)}M tok`}</em>}</span>
-              </div>;
-            })}
+              </div>
+            ))}
           </div>
         </div>}
       </section>

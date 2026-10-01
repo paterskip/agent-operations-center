@@ -1,25 +1,35 @@
 import { NextResponse } from "next/server";
 
 /**
- * Clears the session cookies issued by the identity provider.
+ * The session is owned by the identity provider, so the app cannot end it.
  *
- * The app never sets these cookies itself — Authelia issues `aoc_session` for
- * the apex domain. `cookies.delete()` without an explicit `domain` targets the
- * request host only, so it silently failed to remove the real cookie. The
- * path must match too, otherwise the browser keeps a more specific copy.
+ * The previous implementation cleared cookies here, which never worked:
+ * Authelia issues `aoc_session` for `domain: agents.paterski.com` and this
+ * route answers on the container's internal host, so `cookies.delete()`
+ * targeted a cookie the browser never held. The panel reported a logout that
+ * did not happen while the session kept working for its full lifetime.
+ *
+ * The only correct way out is to send the browser to Authelia's `/logout`
+ * endpoint (`/authelia/logout` here, because the server address is mounted
+ * under that subpath). Authelia destroys the session server-side and
+ * redirects back to the panel, which re-challenges for credentials.
  */
 
-const SESSION_COOKIES = ["aoc_session", "session", "token"] as const;
+const FALLBACK_ORIGIN = "https://agents.paterski.com";
 
-export async function POST(request: Request) {
-  const response = NextResponse.json({ ok: true, message: "Logged out successfully" });
-  const host = new URL(request.url).hostname;
+function logoutUrl(): string {
+  const origin = process.env.AOC_PUBLIC_URL || FALLBACK_ORIGIN;
+  return `${origin.replace(/\/+$/, "")}/authelia/logout`;
+}
 
-  for (const name of SESSION_COOKIES) {
-    for (const domain of [host, `.${host}`]) {
-      response.cookies.set(name, "", { domain, path: "/", maxAge: 0 });
-    }
-    response.cookies.set(name, "", { path: "/", maxAge: 0 });
-  }
-  return response;
+export async function POST() {
+  return NextResponse.json(
+    { ok: true, redirect: logoutUrl() },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+export async function GET() {
+  // Convenience for direct navigation (e.g. a bookmarked logout URL).
+  return NextResponse.redirect(logoutUrl(), { status: 303 });
 }
