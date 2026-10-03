@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { ensureSchema } from "./state-schema.mjs";
 
 const statePath = process.env.AOC_STATE_DB || "/data/state/aoc.db";
 
@@ -82,85 +83,19 @@ function openState() {
   const db = new Database(statePath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  // One-time setup: create tables on first access. The broker owns schema
-  // lifecycle (through ensure-state-tables.mjs), but this codepath handles
-  // local dev and test environments that don't run the broker.
+  // Schema creation + migrations live in ONE shared module (lib/state-schema.mjs),
+  // imported by both this app and the host broker. Previously the DDL was copy-
+  // pasted here and in the broker, so `commands.payload` reached only some DBs.
   if (!stateInitialized) {
+    try {
+      ensureSchema(db);
+    } catch (err) {
+      // Do not poison the flag on failure: a later call retries the migration
+      // instead of running the whole process on a half-migrated schema.
+      db.close();
+      throw err;
+    }
     stateInitialized = true;
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS ideas (
-        id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL, project TEXT NOT NULL,
-        priority INTEGER NOT NULL, mode TEXT NOT NULL, status TEXT NOT NULL,
-        hermes_task_id TEXT, last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS commands (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, idea_id TEXT,
-        payload TEXT,
-        status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-        FOREIGN KEY(idea_id) REFERENCES ideas(id)
-      );
-      CREATE TABLE IF NOT EXISTS audit_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, actor TEXT NOT NULL, action TEXT NOT NULL,
-        target TEXT, detail TEXT, ip TEXT, created_at INTEGER NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS task_decisions (
-        id TEXT PRIMARY KEY, board TEXT NOT NULL, task_id TEXT NOT NULL, action TEXT NOT NULL,
-        from_status TEXT NOT NULL, to_status TEXT, comment TEXT NOT NULL, status TEXT NOT NULL,
-        result_status TEXT, last_error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_task_decisions_pending
-        ON task_decisions(board, task_id) WHERE status IN ('queued','running');
-      CREATE TABLE IF NOT EXISTS task_moves (
-        id TEXT PRIMARY KEY, board TEXT NOT NULL, task_id TEXT NOT NULL, action TEXT NOT NULL,
-        from_status TEXT, to_status TEXT, title TEXT, body TEXT,
-        assignee TEXT, priority INTEGER, comment TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL, result_status TEXT, last_error TEXT,
-        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-      );
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_task_moves_pending
-        ON task_moves(board, task_id) WHERE status IN ('queued','running');
-    `);
-    // Idempotentna migracja: `commands.payload` oraz nullable `commands.idea_id`
-    // zostały dodane obok starego schematu, w którym payload board.create leżał
-    // w kolumnie idea_id objętej kluczem obcym do `ideas` (wstawienie bez
-    // odpowiadającego pomysłu kończyło się FOREIGN KEY constraint failed).
-    // CREATE TABLE IF NOT EXISTS nie zmienia istniejącej tabeli, więc kolumny
-    // dokładamy osobno i przenosimy JSON-y ze starej lokalizacji.
-    const commandColumns = new Set(
-      (db.prepare("PRAGMA table_info(commands)").all() as { name: string }[]).map((c) => c.name)
-    );
-    if (!commandColumns.has("payload")) {
-      db.exec("ALTER TABLE commands ADD COLUMN payload TEXT");
-    }
-    if (commandColumns.has("idea_id")) {
-      // SQLite nie pozwala zmienić NOT NULL bez przebudowy tabeli, więc
-      // dopuszczamy wartości NULL przez przebudowę tylko wtedy, gdy to konieczne.
-      const ideaIsRequired = (db.prepare("PRAGMA table_info(commands)").all() as { name: string; notnull: number }[])
-        .some((c) => c.name === "idea_id" && c.notnull === 1);
-      if (ideaIsRequired) {
-        const migrate = db.transaction(() => {
-          db.exec(`
-            CREATE TABLE commands_migrated (
-              id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, idea_id TEXT,
-              payload TEXT,
-              status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
-              created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-              FOREIGN KEY(idea_id) REFERENCES ideas(id)
-            );
-            INSERT INTO commands_migrated(id, kind, idea_id, payload, status, attempts, created_at, updated_at)
-              SELECT id, kind,
-                     CASE WHEN idea_id LIKE 'idea_%' THEN idea_id ELSE NULL END,
-                     CASE WHEN idea_id LIKE 'idea_%' THEN NULL ELSE idea_id END,
-                     status, attempts, created_at, updated_at
-              FROM commands;
-            DROP TABLE commands;
-            ALTER TABLE commands_migrated RENAME TO commands;
-          `);
-        });
-        migrate();
-      }
-    }
   }
   return db;
 }
